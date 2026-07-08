@@ -1,0 +1,19 @@
+{# 单张项目卡片（横向，一行一个）。传入 card dict。 #}
+<a class="card" href="/projects/{{ card.project_id }}/page" style="border-color:{{ card.card_color }}33;">
+  <div class="card-cover" style="background: linear-gradient(135deg, {{ card.card_color }} 0%, {{ card.card_color }}99 60%, #161b22 100%);">
+    <span class="card-cover-initial">{{ card.title[:1] | upper }}</span>
+    {% if card.primary_lang %}<span class="card-cover-lang">{{ card.primary_lang }}</span>{% endif %}
+  </div>
+  <div class="card-body">
+    <h3 class="card-title">{{ card.title }}</h3>
+    <p class="card-summary">{{ card.summary }}</p>
+    <div class="card-tags">
+      {% for t in card.tags[:6] %}<span class="tag-sm">{{ t }}</span>{% endfor %}
+    </div>
+    <div class="card-foot">
+      <span class="card-owner">@{{ card.owner_name }}</span>
+      <span class="spacer"></span>
+      <span class="card-time">{{ card.created_at[:10] }}</span>
+    </div>
+  </div>
+</a>

@@ -1,0 +1,41 @@
+# ===== 密钥 / 配置（含真实 API key，勿提交）=====
+config.yml
+config.local.yml
+
+# ===== 运行时数据 =====
+storage/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# ===== 测试 / 覆盖率 =====
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 日志 =====
+*.log
+logs/

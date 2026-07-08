@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>生成中 · ProjectAgent</title>
+  <style>
+    :root {
+      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .box { text-align: center; padding: 32px; max-width: 440px; }
+    .spinner {
+      width: 56px; height: 56px; margin: 0 auto 24px;
+      border: 4px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.9s linear infinite;
+    }
+    .spinner.done { animation: none; border-color: #2ea043; border-top-color: #2ea043; }
+    .spinner.failed { animation: none; border-color: #f85149; border-top-color: #f85149; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { color: #fff; margin: 0 0 8px; font-size: 22px; }
+    .msg { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+    .progress-track {
+      width: 100%; height: 6px; background: var(--card); border-radius: 999px;
+      overflow: hidden; margin-bottom: 12px;
+    }
+    .progress-bar { height: 100%; background: var(--accent); width: 0%;
+      transition: width 0.4s ease; }
+    .progress-bar.failed { background: #f85149; }
+    .steps { text-align: left; margin: 20px 0; }
+    .step { display: flex; align-items: center; gap: 10px; padding: 6px 0;
+      color: var(--muted); font-size: 13px; }
+    .step.active { color: var(--accent); }
+    .step.done { color: #2ea043; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+    .step.active .dot { background: var(--accent); }
+    .step.done .dot { background: #2ea043; }
+    .err-box { background: var(--card); border: 1px solid #f8514944; border-radius: 8px;
+      padding: 12px 14px; color: #f85149; font-size: 13px; margin-top: 16px;
+      text-align: left; word-break: break-all; }
+    .btn { display: inline-block; margin-top: 20px; padding: 10px 22px; border-radius: 8px;
+      background: var(--accent); color: #fff; text-decoration: none; font-size: 14px; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border);
+      color: var(--muted); margin-left: 10px; }
+    .notice {
+      margin-top: 18px; padding: 10px 12px; border-radius: 8px;
+      background: var(--card); border: 1px solid var(--border);
+      color: var(--muted); font-size: 12px; text-align: left; line-height: 1.6;
+    }
+    .notice b { color: var(--text); }
+    .copy-row { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+    .copy-row input {
+      flex: 1; background: var(--bg); color: var(--muted); border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 8px; font-size: 12px;
+    }
+    .btn-copy {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-copy:hover { border-color: var(--accent); color: var(--accent); }
+  </style>
+</head>
+<body>
+<div class="box">
+  <div class="spinner" id="spinner"></div>
+  <h1 id="title">正在生成展示页…</h1>
+  <p class="msg" id="msg">解析项目结构中</p>
+  <div class="progress-track"><div class="progress-bar" id="bar"></div></div>
+  <div class="steps">
+    <div class="step" id="s-clone"><span class="dot"></span>获取项目源码</div>
+    <div class="step" id="s-parse"><span class="dot"></span>解析项目结构</div>
+    <div class="step" id="s-gen"><span class="dot"></span>生成展示内容</div>
+    <div class="step" id="s-render"><span class="dot"></span>渲染展示页</div>
+  </div>
+  <div class="notice" id="notice">
+    <b>生成约需 10-30 秒</b>，取决于仓库大小与 LLM 响应。<br>
+    你可以关闭此页面稍后回来，进度不会丢失。
+    <div class="copy-row">
+      <input id="link-input" readonly>
+      <button class="btn-copy" onclick="copyLink()">复制链接</button>
+    </div>
+  </div>
+  <div class="err-box" id="err" style="display:none;"></div>
+  <div id="actions"></div>
+</div>
+
+<script>
+const PID = "{{ project_id }}";
+const bar = document.getElementById('bar');
+const msg = document.getElementById('msg');
+const titleEl = document.getElementById('title');
+const spinner = document.getElementById('spinner');
+const errBox = document.getElementById('err');
+const actions = document.getElementById('actions');
+const notice = document.getElementById('notice');
+
+// 填入可复制的进度页链接
+document.getElementById('link-input').value = location.href;
+
+function copyLink() {
+  const inp = document.getElementById('link-input');
+  inp.select();
+  navigator.clipboard.writeText(inp.value).then(() => {
+    const btn = document.querySelector('.btn-copy');
+    const old = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = old, 1500);
+  }).catch(() => {
+    document.execCommand('copy');
+  });
+}
+
+const steps = {
+  cloning: ['s-clone'],
+  parsing: ['s-clone', 's-parse'],
+  generating: ['s-clone', 's-parse', 's-gen'],
+  done: ['s-clone', 's-parse', 's-gen', 's-render'],
+};
+
+function setSteps(active) {
+  const doneList = steps[active] || [];
+  ['s-clone','s-parse','s-gen','s-render'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active', 'done');
+    if (doneList.includes(id)) el.classList.add('done');
+  });
+}
+
+function finish(ok, errMsg) {
+  notice.style.display = 'none';
+  spinner.classList.remove('done', 'failed');
+  spinner.classList.add(ok ? 'done' : 'failed');
+  bar.style.width = ok ? '100%' : '100%';
+  if (!ok) bar.classList.add('failed');
+  titleEl.textContent = ok ? '生成完成！' : '生成失败';
+  msg.textContent = ok ? '即将跳转到展示页…' : '处理过程中出错';
+  if (!ok && errMsg) {
+    errBox.style.display = '';
+    errBox.textContent = errMsg;
+  }
+  actions.innerHTML = ok
+    ? '<a class="btn" href="/projects/' + PID + '/page">查看展示页</a><a class="btn btn-ghost" href="/">返回首页</a>'
+    : '<a class="btn btn-ghost" href="/">返回首页</a>';
+  if (ok) setTimeout(() => location.href = '/projects/' + PID + '/page', 1200);
+}
+
+const es = new EventSource('/projects/' + PID + '/status/stream');
+es.onmessage = (e) => {
+  const d = JSON.parse(e.data);
+  bar.style.width = (d.progress > 0 ? d.progress : 5) + '%';
+  msg.textContent = d.message || '';
+  if (d.status && steps[d.status]) setSteps(d.status);
+  if (d.status === 'done') { es.close(); finish(true); }
+  else if (d.status === 'failed') { es.close(); finish(false, d.error); }
+};
+es.onerror = () => {
+  // SSE 断开（可能是超时），回退到轮询
+  es.close();
+  const poll = setInterval(() => {
+    fetch('/projects/' + PID + '/status').then(r => r.json()).then(d => {
+      bar.style.width = (d.progress > 0 ? d.progress : 5) + '%';
+      msg.textContent = d.message || '';
+      if (d.status && steps[d.status]) setSteps(d.status);
+      if (d.status === 'done') { clearInterval(poll); finish(true); }
+      else if (d.status === 'failed') { clearInterval(poll); finish(false, d.error); }
+    });
+  }, 2000);
+};
+</script>
+</body>
+</html>

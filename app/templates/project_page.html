@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-bg: rgba(56,139,253,0.15);
+      --code-bg: #1f2428;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.7;
+    }
+    .container { max-width: 980px; margin: 0 auto; padding: 24px 24px 32px; }
+
+    header.topbar {
+      border-bottom: 1px solid var(--border);
+      background: #161b22;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-inner {
+      max-width: 980px; margin: 0 auto; padding: 12px 24px;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .topbar-inner .logo { font-size: 18px; font-weight: 700; color: #fff; text-decoration: none; }
+    .topbar-inner .logo span { color: var(--accent); }
+    .topbar-inner .back {
+      margin-left: auto; font-size: 13px; color: var(--muted);
+      text-decoration: none; padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border); transition: all 0.15s;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .topbar-inner .back:hover { border-color: var(--accent); color: var(--accent); }
+
+    header.hero {
+      background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 32px; margin-bottom: 24px;
+    }
+    header.hero h1 { margin: 0 0 8px; font-size: 32px; color: #fff; }
+    header.hero .summary { font-size: 17px; color: var(--muted); margin: 0; }
+    .tags { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag {
+      background: var(--accent-bg); color: var(--accent);
+      padding: 4px 12px; border-radius: 999px; font-size: 13px;
+    }
+
+    .grid { display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+
+    section.card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; margin-bottom: 20px;
+    }
+    section.card h2 {
+      margin: 0 0 16px; font-size: 20px; color: #fff;
+      padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    }
+
+    ul.clean { list-style: none; padding: 0; margin: 0; }
+    ul.clean li { padding: 6px 0; padding-left: 22px; position: relative; }
+    ul.clean li::before {
+      content: "▸"; position: absolute; left: 4px; color: var(--accent);
+    }
+
+    .overview p { margin: 0 0 12px; }
+    .overview p:last-child { margin-bottom: 0; }
+
+    aside .tech-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    aside .tech-list span {
+      background: var(--code-bg); border: 1px solid var(--border);
+      padding: 4px 10px; border-radius: 6px; font-size: 13px;
+    }
+
+    .lang-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+    .lang-bar div { height: 100%; }
+
+    pre, code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    pre {
+      background: var(--code-bg); padding: 14px; border-radius: 8px;
+      overflow-x: auto; border: 1px solid var(--border);
+    }
+    .getting-started pre { white-space: pre-wrap; word-break: break-word; }
+
+    .readme { max-height: none; }
+    .readme h1,.readme h2,.readme h3 { color: #fff; }
+    .readme a { color: var(--accent); }
+    .readme img { max-width: 100%; border-radius: 8px; }
+    .readme table { border-collapse: collapse; }
+    .readme th,.readme td { border: 1px solid var(--border); padding: 6px 10px; }
+    .readme code:not(pre code) {
+      background: var(--code-bg); padding: 2px 6px; border-radius: 4px;
+      font-size: 0.9em;
+    }
+
+    footer { text-align: center; color: var(--muted); font-size: 13px; padding: 24px 0; }
+
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      background: var(--code-bg); border: 1px solid var(--border);
+      font-size: 12px; color: var(--muted); margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="logo" href="/">Project<span>Agent</span></a>
+      <a class="back" href="/">← 返回列表</a>
+    </div>
+  </header>
+  <div class="container">
+
+    <header class="hero">
+      <h1>{{ title }}</h1>
+      <p class="summary">{{ one_line_summary }}</p>
+      <div class="tags">
+        {% for tag in tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+      </div>
+      <div style="margin-top:16px;">
+        {% if license %}<span class="badge">📄 {{ license }}</span>{% endif %}
+        {% if entry_hints %}<span class="badge">▶ {{ entry_hints[0] }}</span>{% endif %}
+      </div>
+    </header>
+
+    <div class="grid">
+      <main>
+        <section class="card">
+          <h2>核心亮点</h2>
+          <ul class="clean">
+            {% for h in highlights %}<li>{{ h }}</li>{% endfor %}
+          </ul>
+        </section>
+
+        <section class="card overview">
+          <h2>架构概述</h2>
+          {% for p in architecture_overview.split('\n\n') if p.strip() %}
+            <p>{{ p.strip() }}</p>
+          {% endfor %}
+        </section>
+
+        <section class="card getting-started">
+          <h2>快速上手</h2>
+          <pre>{{ getting_started }}</pre>
+        </section>
+
+        <section class="card">
+          <h2>适用场景</h2>
+          <ul class="clean">
+            {% for u in use_cases %}<li>{{ u }}</li>{% endfor %}
+          </ul>
+        </section>
+
+        {% if readme_html %}
+        <section class="card readme">
+          <h2>README</h2>
+          {{ readme_html | safe }}
+        </section>
+        {% endif %}
+      </main>
+
+      <aside>
+        <section class="card">
+          <h2>技术栈</h2>
+          <div class="tech-list">
+            {% for t in tech_stack %}<span>{{ t }}</span>{% endfor %}
+          </div>
+        </section>
+
+        {% if languages %}
+        <section class="card">
+          <h2>语言分布</h2>
+          {% set total = languages.values() | sum %}
+          <div class="lang-bar">
+            {% set palette = ['#3178c6','#f7df1e','#3572a5','#dea584','#f34b7d','#a371f7','#41b883','#ff7a45','#427819','#ed2cd1'] %}
+            {% for lang, count in languages.items() %}
+              {% set pct = (count / total * 100) if total else 0 %}
+              <div style="width:{{ pct }}%; background:{{ palette[loop.index0 % 10] }};" title="{{ lang }} {{ '%.1f'|format(pct) }}%"></div>
+            {% endfor %}
+          </div>
+          <ul class="clean" style="font-size:13px;">
+            {% for lang, count in languages.items() %}
+              {% set pct = (count / total * 100) if total else 0 %}
+              <li style="padding:2px 0 2px 22px;">{{ lang }} <span style="color:var(--muted);">{{ '%.1f'|format(pct) }}%</span></li>
+            {% endfor %}
+          </ul>
+        </section>
+        {% endif %}
+
+        {% if dependencies %}
+        <section class="card">
+          <h2>依赖</h2>
+          {% for eco, pkgs in dependencies.items() %}
+            <div style="margin-bottom:10px;">
+              <div style="color:var(--muted); font-size:12px; margin-bottom:4px;">{{ eco }}</div>
+              <div class="tech-list">
+                {% for p in pkgs[:20] %}<span>{{ p }}</span>{% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if tree %}
+        <section class="card">
+          <h2>目录结构</h2>
+          <pre style="font-size:12px; max-height:300px; overflow:auto;">{{ tree_text }}</pre>
+        </section>
+        {% endif %}
+      </aside>
+    </div>
+
+    <footer>
+      由 ProjectAgent 自动生成 · 模板版本 v{{ template_version }}
+    </footer>
+  </div>
+</body>
+</html>

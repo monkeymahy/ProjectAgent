@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProjectAgent · 最新发布</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-bg: rgba(56,139,253,0.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* 顶部栏 */
+    header.topbar {
+      border-bottom: 1px solid var(--border);
+      background: #161b22;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-inner {
+      max-width: 1200px; margin: 0 auto; padding: 16px 24px;
+      display: flex; align-items: center; gap: 24px;
+    }
+    .logo { font-size: 20px; font-weight: 700; color: #fff; }
+    .logo span { color: var(--accent); }
+    .tabs { display: flex; gap: 8px; }
+    .tab {
+      padding: 8px 16px; border-radius: 8px; font-size: 14px;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab.active { background: var(--accent-bg); color: var(--accent); }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* 筛选栏 */
+    .filters {
+      display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+      margin-bottom: 20px;
+    }
+    .filters label { font-size: 13px; color: var(--muted); }
+    .filters select {
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 6px 10px; font-size: 13px; cursor: pointer;
+    }
+    .filters select:disabled { opacity: 0.5; }
+
+    .results-info { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+
+    /* 卡片列表（一行一个） */
+    .grid {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .card {
+      display: flex; background: var(--card);
+      border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden; transition: border-color 0.15s, transform 0.15s;
+      min-height: 120px;
+    }
+    .card:hover { transform: translateX(3px); border-color: var(--accent)66; }
+
+    .card-cover {
+      width: 132px; min-width: 132px; position: relative;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card-cover-initial {
+      font-size: 48px; font-weight: 800; color: rgba(255,255,255,0.92);
+      text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .card-cover-lang {
+      position: absolute; bottom: 8px; left: 0; right: 0;
+      text-align: center; font-size: 11px; color: rgba(255,255,255,0.9);
+    }
+    .card-body { padding: 14px 18px; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .card-title {
+      margin: 0 0 6px; font-size: 17px; color: #fff;
+    }
+    .card-summary {
+      margin: 0 0 10px; font-size: 13px; color: var(--muted);
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;}
+    .tag-sm {
+      background: var(--accent-bg); color: var(--accent);
+      padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    }
+    .card-foot {
+      display: flex; gap: 16px; align-items: center;
+      font-size: 12px; color: var(--muted);
+      padding-top: 8px; border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+    .card-foot .spacer { flex: 1; }
+
+    @media (max-width: 560px) {
+      .card-cover { width: 88px; min-width: 88px; }
+      .card-cover-initial { font-size: 34px; }
+      .card-body { padding: 12px 14px; }
+    }
+
+    /* 分页 */
+    .pagination {
+      display: flex; justify-content: center; gap: 8px;
+      margin-top: 32px; flex-wrap: wrap;
+    }
+    .pagination a, .pagination span {
+      padding: 8px 14px; border-radius: 8px; font-size: 14px;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+    }
+    .pagination a:hover { border-color: var(--accent); color: var(--accent); }
+    .pagination .cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .pagination .disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* 空态 */
+    .empty {
+      text-align: center; padding: 80px 24px; color: var(--muted);
+    }
+    .empty h2 { color: #fff; margin-bottom: 8px; }
+
+    footer { text-align: center; color: var(--muted); font-size: 13px; padding: 32px 0; }
+
+    /* 发布按钮 */
+    .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .user-chip {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+      color: var(--text); padding: 4px 10px 4px 4px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    }
+    .user-chip img {
+      width: 22px; height: 22px; border-radius: 50%; object-fit: cover;
+      background: var(--border);
+    }
+    .user-chip .fallback-av {
+      width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+      color: #fff; font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-link {
+      font-size: 13px; color: var(--muted); padding: 7px 14px;
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    .login-link:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-publish {
+      background: var(--accent); color: #fff; border: none;
+      padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s, transform 0.1s;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-publish:hover { background: #4f93e6; }
+    .btn-publish:active { transform: scale(0.97); }
+    .btn-publish .plus { font-size: 18px; line-height: 1; }
+
+    /* Modal */
+    .modal-mask {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal-mask.open { display: flex; }
+    .modal {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      width: 460px; max-width: calc(100vw - 32px); padding: 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .modal h2 { margin: 0 0 4px; font-size: 20px; color: #fff; }
+    .modal .modal-sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+    .modal .close {
+      position: absolute; top: 16px; right: 18px; background: none; border: none;
+      color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: flex-start; }
+    .src-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .src-tab {
+      flex: 1; text-align: center; padding: 9px; border-radius: 8px; font-size: 13px;
+      background: transparent; color: var(--muted); border: 1px solid var(--border);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .src-tab.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .field input[type=text] {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px;
+      box-sizing: border-box;
+    }
+    .field input[type=text]:focus { outline: none; border-color: var(--accent); }
+    .file-drop {
+      border: 1px dashed var(--border); border-radius: 8px; padding: 22px;
+      text-align: center; color: var(--muted); font-size: 13px; cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .file-drop:hover { border-color: var(--accent); background: var(--accent-bg); }
+    .file-drop.has-file { border-color: var(--accent); color: var(--accent); }
+    .file-drop input { display: none; }
+    .modal-error {
+      color: #f85149; font-size: 13px; margin: 8px 0; min-height: 18px;
+    }
+    .modal-success {
+      display: none; align-items: center; gap: 8px;
+      background: rgba(46,160,67,0.12); border: 1px solid rgba(46,160,67,0.4);
+      color: #2ea043; font-size: 13px; padding: 10px 12px; border-radius: 8px;
+      margin: 8px 0;
+    }
+    .modal-success .check { font-size: 16px; }
+    .modal-success .sub { color: var(--muted); font-size: 12px; margin-top: 2px; display:block; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+    .btn-secondary {
+      background: transparent; color: var(--muted); border: 1px solid var(--border);
+      padding: 9px 16px; border-radius: 8px; font-size: 14px; cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--accent); color: #fff; border: none;
+      padding: 9px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="logo">Project<span>Agent</span></div>
+    <nav class="tabs">
+      <div class="tab active">最新发布</div>
+    </nav>
+    <div class="topbar-actions">
+      {% if current_user %}
+      <span class="user-chip">
+        {% if current_user.avatar %}
+          <img src="{{ current_user.avatar }}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fallback-av',textContent:'{{ current_user.username[:1] }}'}))">
+        {% else %}
+          <span class="fallback-av">{{ current_user.username[:1] }}</span>
+        {% endif %}
+        {{ current_user.username }}
+      </span>
+      {% else %}
+      <a class="login-link" href="{{ tforum_base_url }}" target="_blank" rel="noopener">登录 tForum</a>
+      {% endif %}
+      <button class="btn-publish" onclick="openModal()">
+        <span class="plus">＋</span> 发布项目
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="filters">
+    <div>
+      <label>语言：</label>
+      <select onchange="location.href='?lang='+this.value{% if tag %}+'&tag={{ tag }}'{% endif %}">
+        <option value="">全部</option>
+        {% for l in langs %}
+        <option value="{{ l }}" {% if l == lang %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>标签：</label>
+      <select onchange="location.href='?tag='+this.value{% if lang %}+'&lang={{ lang }}'{% endif %}">
+        <option value="">全部</option>
+        {% for t in tags %}
+        <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if lang or tag %}
+    <a href="/" style="font-size:13px;color:var(--accent);">清除筛选</a>
+    {% endif %}
+  </div>
+
+  <div class="results-info">共 {{ total }} 个项目 · 第 {{ page }}/{{ total_pages }} 页</div>
+
+  {% if cards %}
+  <div class="grid">
+    {% for card in cards %}
+      {% include "_card.html" %}
+    {% endfor %}
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+      <a href="?page={{ page - 1 }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">上一页</a>
+    {% else %}
+      <span class="disabled">上一页</span>
+    {% endif %}
+
+    {% for p in page_range %}
+      {% if p == page %}
+        <span class="cur">{{ p }}</span>
+      {% else %}
+        <a href="?page={{ p }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+
+    {% if page < total_pages %}
+      <a href="?page={{ page + 1 }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">下一页</a>
+    {% else %}
+      <span class="disabled">下一页</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty">
+    <h2>还没有项目</h2>
+    <p>提交一个 Git 地址或压缩包，让社区看到你的项目。</p>
+    <button class="btn-publish" style="margin-top:16px;" onclick="openModal()">
+      <span class="plus">＋</span> 发布项目
+    </button>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- 发布 Modal -->
+<div class="modal-mask" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="position:relative;">
+    <div class="modal-head">
+      <div>
+        <h2>发布项目</h2>
+        <p class="modal-sub">提交后自动解析并生成展示页，约 10-30 秒</p>
+      </div>
+      <button class="close" onclick="closeModal()">×</button>
+    </div>
+
+    <div class="src-tabs">
+      <div class="src-tab active" data-src="url" onclick="switchSrc('url')">Git 仓库地址</div>
+      <div class="src-tab" data-src="zip" onclick="switchSrc('zip')">上传压缩包</div>
+    </div>
+
+    <div class="field" id="field-url">
+      <label>仓库 URL（支持 GitHub / GitLab / Gitee）</label>
+      <input type="text" id="input-url" placeholder="https://gitee.com/your/repo.git">
+    </div>
+    <div class="field" id="field-zip" style="display:none;">
+      <label>压缩包（.zip）</label>
+      <label class="file-drop" id="filedrop">
+        <input type="file" id="input-zip" accept=".zip" onchange="onFilePick(event)">
+        <span id="filedrop-text">点击选择 .zip 文件</span>
+      </label>
+    </div>
+
+    {% if current_user %}
+    <div class="field">
+      <label>发布身份</label>
+      <div style="font-size:14px;color:var(--text);padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+        <b>{{ current_user.username }}</b>
+        <span style="color:var(--muted);font-size:12px;">（来自 tForum）</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="field">
+      <div style="font-size:13px;color:#f85149;padding:10px 12px;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.3);border-radius:8px;line-height:1.6;">
+        发布项目需要先登录 tForum 账号。<br>
+        请从 tForum 站内「项目展示」入口进入，或
+        <a href="{{ tforum_base_url }}" target="_blank" rel="noopener" style="color:var(--accent);">前往 tForum 登录</a>。
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="modal-error" id="modal-error"></div>
+    <div class="modal-success" id="modal-success">
+      <span class="check">✓</span>
+      <div>
+        提交成功，正在生成展示页
+        <span class="sub">生成约需 10-30 秒，即将跳转进度页，可随时离开</span>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn-primary" id="btn-submit" onclick="submitProject()">提交</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let curSrc = 'url';
+let pickedFile = null;
+
+function openModal() {
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  document.getElementById('modal-error').textContent = '';
+  document.getElementById('modal-success').style.display = 'none';
+}
+function switchSrc(src) {
+  curSrc = src;
+  document.querySelectorAll('.src-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.src === src);
+  });
+  document.getElementById('field-url').style.display = src === 'url' ? '' : 'none';
+  document.getElementById('field-zip').style.display = src === 'zip' ? '' : 'none';
+}
+function onFilePick(e) {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (!f.name.toLowerCase().endsWith('.zip')) {
+    showError('请选择 .zip 文件');
+    e.target.value = '';
+    return;
+  }
+  pickedFile = f;
+  const drop = document.getElementById('filedrop');
+  drop.classList.add('has-file');
+  document.getElementById('filedrop-text').textContent = '已选择: ' + f.name;
+  document.getElementById('modal-error').textContent = '';
+}
+function showError(msg) {
+  document.getElementById('modal-error').textContent = msg;
+  document.getElementById('modal-success').style.display = 'none';
+}
+function showSuccess() {
+  document.getElementById('modal-error').textContent = '';
+  document.getElementById('modal-success').style.display = 'flex';
+}
+function setSubmitting(on) {
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = on;
+  btn.textContent = on ? '提交中…' : '提交';
+}
+
+async function submitProject() {
+  setSubmitting(true);
+  showError('');
+  try {
+    let resp;
+    if (curSrc === 'url') {
+      const url = document.getElementById('input-url').value.trim();
+      if (!url) { showError('请填写仓库 URL'); setSubmitting(false); return; }
+      resp = await fetch('/projects/url', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url}),
+      });
+    } else {
+      if (!pickedFile) { showError('请选择压缩包'); setSubmitting(false); return; }
+      const fd = new FormData();
+      fd.append('file', pickedFile);
+      resp = await fetch('/projects/upload', {method: 'POST', body: fd});
+    }
+    if (resp.status === 401) {
+      showError('请先登录 tForum 后再发布');
+      setSubmitting(false);
+      return;
+    }
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.detail || '提交失败'); setSubmitting(false); return; }
+    // 提交成功：显示成功提示，稍后跳进度页
+    showSuccess();
+    setSubmitting(false);
+    setTimeout(() => {
+      location.href = '/projects/' + data.project_id + '/progress';
+    }, 1200);
+  } catch (e) {
+    showError('网络错误: ' + e.message);
+    setSubmitting(false);
+  }
+}
+</script>
+
+<footer>ProjectAgent · 自动生成的项目展示社区</footer>
+</body>
+</html>
