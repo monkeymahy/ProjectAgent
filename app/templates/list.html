@@ -247,7 +247,7 @@
         {{ current_user.username }}
       </span>
       {% else %}
-      <a class="login-link" href="{{ tforum_base_url }}" target="_blank" rel="noopener">登录 tForum</a>
+      <span class="login-link" style="cursor:default;color:var(--muted);">未登录</span>
       {% endif %}
       <button class="btn-publish" onclick="openModal()">
         <span class="plus">＋</span> 发布项目
@@ -338,6 +338,7 @@
       <button class="close" onclick="closeModal()">×</button>
     </div>
 
+    {% if current_user %}
     <div class="src-tabs">
       <div class="src-tab active" data-src="url" onclick="switchSrc('url')">Git 仓库地址</div>
       <div class="src-tab" data-src="zip" onclick="switchSrc('zip')">上传压缩包</div>
@@ -354,6 +355,7 @@
         <span id="filedrop-text">点击选择 .zip 文件</span>
       </label>
     </div>
+    {% endif %}
 
     {% if current_user %}
     <div class="field">
@@ -366,9 +368,8 @@
     {% else %}
     <div class="field">
       <div style="font-size:13px;color:#f85149;padding:10px 12px;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.3);border-radius:8px;line-height:1.6;">
-        发布项目需要先登录 tForum 账号。<br>
-        请从 tForum 站内「项目展示」入口进入，或
-        <a href="{{ tforum_base_url }}" target="_blank" rel="noopener" style="color:var(--accent);">前往 tForum 登录</a>。
+        未登录，无法发布项目。<br>
+        请从 tForum 站内「项目展示」入口进入。
       </div>
     </div>
     {% endif %}
@@ -384,7 +385,7 @@
 
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">取消</button>
-      <button class="btn-primary" id="btn-submit" onclick="submitProject()">提交</button>
+      {% if current_user %}<button class="btn-primary" id="btn-submit" onclick="submitProject()">提交</button>{% endif %}
     </div>
   </div>
 </div>

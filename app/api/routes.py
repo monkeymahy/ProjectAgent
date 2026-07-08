@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import threading
 import uuid
 import logging
@@ -16,7 +17,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.session import COOKIE_NAME, sign_session, verify_session
 from app.models.models import (
-    create_project, get_project, init_db, upsert_user, TaskStatus,
+    create_project, get_project, delete_project, init_db, upsert_user, TaskStatus,
 )
 from app.tasks import process_project
 
@@ -172,8 +173,45 @@ async def stream_status(project_id: str):
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
+_DELETE_SNIPPET = """
+<style>
+.pa-fab{position:fixed;right:24px;bottom:24px;z-index:50;background:#f85149;color:#fff;
+border:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;
+box-shadow:0 6px 18px rgba(0,0,0,0.45);font-family:inherit;}
+.pa-fab:hover{background:#da3633;}
+</style>
+<button class="pa-fab" onclick="paDelete()">删除项目</button>
+<script>
+function paDelete(){
+  if(!confirm('确认删除该项目？此操作不可恢复。'))return;
+  fetch('/projects/__PID__',{method:'DELETE'}).then(function(r){
+    if(r.status===403){alert('无权删除该项目');return;}
+    if(r.status===401){alert('请先登录');return;}
+    if(!r.ok){alert('删除失败');return;}
+    alert('已删除');location.href='/';
+  }).catch(function(){alert('网络错误');});
+}
+</script>
+"""
+
+
+def _inject_delete_button(html: str, project_id: str) -> str:
+    snippet = _DELETE_SNIPPET.replace("__PID__", project_id)
+    if "</body>" in html:
+        return html.replace("</body>", snippet + "</body>", 1)
+    return html + snippet
+
+
+def _can_delete(user: Optional[dict], proj: dict) -> bool:
+    if not user:
+        return False
+    if proj.get("owner_id") == user["tforum_user_id"]:
+        return True
+    return user.get("role") == "admin"
+
+
 @router.get("/projects/{project_id}/page", response_class=HTMLResponse)
-def view_page(project_id: str) -> HTMLResponse:
+def view_page(project_id: str, request: Request) -> HTMLResponse:
     proj = get_project(project_id)
     if not proj:
         raise HTTPException(404, "项目不存在")
@@ -182,7 +220,40 @@ def view_page(project_id: str) -> HTMLResponse:
     html_path = Path(proj["html_path"])
     if not html_path.exists():
         raise HTTPException(404, "展示页文件缺失")
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    html = html_path.read_text(encoding="utf-8")
+    if _can_delete(_current_user(request), proj):
+        html = _inject_delete_button(html, project_id)
+    return HTMLResponse(html)
+
+
+@router.delete("/projects/{project_id}")
+def remove_project(project_id: str, request: Request) -> JSONResponse:
+    """删除项目：仅作者或管理员。鉴权通过后清 DB 行 + 生成页 + repo/upload。"""
+    user = _require_user(request)
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    if not _can_delete(user, proj):
+        raise HTTPException(403, "无权删除该项目")
+
+    delete_project(project_id)
+
+    if proj.get("html_path"):
+        try:
+            Path(proj["html_path"]).unlink()
+        except Exception:
+            log.warning("删除展示页失败: %s", proj.get("html_path"))
+    repo_dir = settings.repos_dir / project_id
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir, ignore_errors=True)
+    zip_path = settings.uploads_dir / f"{project_id}.zip"
+    if zip_path.exists():
+        try:
+            zip_path.unlink()
+        except Exception:
+            pass
+    log.info("项目 %s 已被 %s 删除", project_id, user.get("username"))
+    return JSONResponse({"ok": True})
 
 
 @router.get("/projects/{project_id}/progress", response_class=HTMLResponse)
@@ -251,7 +322,6 @@ def home(
         langs=distinct_filter_values("lang"),
         tags=distinct_filter_values("tag"),
         current_user=user,
-        tforum_base_url=settings.tforum_base_url,
     )
     return HTMLResponse(html)
 

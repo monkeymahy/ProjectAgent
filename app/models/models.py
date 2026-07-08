@@ -123,6 +123,13 @@ def get_project(project_id: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+def delete_project(project_id: str) -> None:
+    """删除项目：同时清掉 projects 与 project_cards 两张表的行。"""
+    with _connect() as conn:
+        conn.execute("DELETE FROM project_cards WHERE project_id=?", (project_id,))
+        conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+
+
 def update_status(
     project_id: str,
     status: TaskStatus,
