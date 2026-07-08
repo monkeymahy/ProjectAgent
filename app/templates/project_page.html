@@ -124,9 +124,9 @@
   <div class="container">
 
     <header class="hero">
-      <h1>{{ title }}</h1>
-      <p class="summary">{{ one_line_summary }}</p>
-      <div class="tags">
+      <h1 data-field="title" data-type="text">{{ title }}</h1>
+      <p class="summary" data-field="one_line_summary" data-type="text">{{ one_line_summary }}</p>
+      <div class="tags" data-field="tags" data-type="list">
         {% for tag in tags %}<span class="tag">{{ tag }}</span>{% endfor %}
       </div>
       <div style="margin-top:16px;">
@@ -139,26 +139,28 @@
       <main>
         <section class="card">
           <h2>核心亮点</h2>
-          <ul class="clean">
+          <ul class="clean" data-field="highlights" data-type="list">
             {% for h in highlights %}<li>{{ h }}</li>{% endfor %}
           </ul>
         </section>
 
         <section class="card overview">
           <h2>架构概述</h2>
-          {% for p in architecture_overview.split('\n\n') if p.strip() %}
-            <p>{{ p.strip() }}</p>
-          {% endfor %}
+          <div data-field="architecture_overview" data-type="text">
+            {% for p in architecture_overview.split('\n\n') if p.strip() %}
+              <p>{{ p.strip() }}</p>
+            {% endfor %}
+          </div>
         </section>
 
         <section class="card getting-started">
           <h2>快速上手</h2>
-          <pre>{{ getting_started }}</pre>
+          <pre data-field="getting_started" data-type="text">{{ getting_started }}</pre>
         </section>
 
         <section class="card">
           <h2>适用场景</h2>
-          <ul class="clean">
+          <ul class="clean" data-field="use_cases" data-type="list">
             {% for u in use_cases %}<li>{{ u }}</li>{% endfor %}
           </ul>
         </section>
@@ -174,7 +176,7 @@
       <aside>
         <section class="card">
           <h2>技术栈</h2>
-          <div class="tech-list">
+          <div class="tech-list" data-field="tech_stack" data-type="list">
             {% for t in tech_stack %}<span>{{ t }}</span>{% endfor %}
           </div>
         </section>

@@ -7,7 +7,7 @@ import threading
 import uuid
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, List
 
 import httpx
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
@@ -17,7 +17,8 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.session import COOKIE_NAME, sign_session, verify_session
 from app.models.models import (
-    create_project, get_project, delete_project, init_db, upsert_user, TaskStatus,
+    create_project, get_project, delete_project, update_generated,
+    init_db, upsert_user, upsert_card, TaskStatus,
 )
 from app.tasks import process_project
 
@@ -173,36 +174,86 @@ async def stream_status(project_id: str):
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
-_DELETE_SNIPPET = """
+_AUTH_SNIPPET = """
 <style>
 .pa-fab{position:fixed;right:24px;bottom:24px;z-index:50;background:#f85149;color:#fff;
 border:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;
 box-shadow:0 6px 18px rgba(0,0,0,0.45);font-family:inherit;}
 .pa-fab:hover{background:#da3633;}
+.pa-edit-btn{display:inline-block;background:transparent;border:1px solid #30363d;color:#8b949e;
+padding:2px 9px;border-radius:6px;font-size:12px;cursor:pointer;margin-bottom:6px;font-family:inherit;}
+.pa-edit-btn:hover{border-color:#58a6ff;color:#58a6ff;}
+.pa-edit-ta{width:100%;min-height:90px;background:#0d1117;color:#c9d1d9;border:1px solid #58a6ff;
+border-radius:8px;padding:10px;font-family:inherit;font-size:14px;line-height:1.6;box-sizing:border-box;}
+.pa-edit-act{margin:6px 0;display:flex;gap:8px;}
+.pa-edit-act button{padding:5px 14px;border-radius:6px;font-size:13px;cursor:pointer;
+border:1px solid #30363d;background:#161b22;color:#c9d1d9;font-family:inherit;}
+.pa-edit-act .sv{background:#58a6ff;color:#fff;border-color:#58a6ff;}
 </style>
 <button class="pa-fab" onclick="paDelete()">删除项目</button>
 <script>
+var PA_PID="__PID__";
 function paDelete(){
   if(!confirm('确认删除该项目？此操作不可恢复。'))return;
-  fetch('/projects/__PID__',{method:'DELETE'}).then(function(r){
+  fetch('/projects/'+PA_PID,{method:'DELETE'}).then(function(r){
     if(r.status===403){alert('无权删除该项目');return;}
     if(r.status===401){alert('请先登录');return;}
     if(!r.ok){alert('删除失败');return;}
     alert('已删除');location.href='/';
   }).catch(function(){alert('网络错误');});
 }
+function paVal(el,type){
+  if(type==='list')return Array.prototype.map.call(el.children,function(c){return c.textContent;}).join('\\n');
+  return el.innerText;
+}
+function paEdit(el){
+  var field=el.getAttribute('data-field');
+  var type=el.getAttribute('data-type')||'text';
+  var ta=document.createElement('textarea');ta.className='pa-edit-ta';ta.value=paVal(el,type);
+  var acts=document.createElement('div');acts.className='pa-edit-act';
+  var sv=document.createElement('button');sv.className='sv';sv.textContent='保存';
+  var cc=document.createElement('button');cc.textContent='取消';
+  acts.appendChild(sv);acts.appendChild(cc);
+  el.parentNode.insertBefore(acts,el);
+  el.parentNode.insertBefore(ta,el);
+  el.style.display='none';
+  var btn=document.querySelector('.pa-edit-btn[data-for="'+field+'"]');if(btn)btn.style.display='none';
+  ta.focus();
+  sv.onclick=function(){
+    var raw=ta.value;
+    var value=type==='list'?raw.split('\\n').map(function(s){return s.trim();}).filter(Boolean):raw;
+    fetch('/projects/'+PA_PID,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({field:field,value:value})}).then(function(r){
+        if(r.status===403){alert('无权编辑');return;}
+        if(r.status===401){alert('请先登录');return;}
+        if(!r.ok){alert('保存失败');return;}
+        location.reload();
+      }).catch(function(){alert('网络错误');});
+  };
+  cc.onclick=function(){
+    ta.remove();acts.remove();el.style.display='';if(btn)btn.style.display='';
+  };
+}
+document.querySelectorAll('[data-field]').forEach(function(el){
+  var field=el.getAttribute('data-field');
+  var btn=document.createElement('button');
+  btn.className='pa-edit-btn';btn.textContent='✎ 编辑';btn.setAttribute('data-for',field);
+  btn.onclick=function(){paEdit(el);};
+  el.parentNode.insertBefore(btn,el);
+});
 </script>
 """
 
 
-def _inject_delete_button(html: str, project_id: str) -> str:
-    snippet = _DELETE_SNIPPET.replace("__PID__", project_id)
+def _inject_auth_tools(html: str, project_id: str) -> str:
+    snippet = _AUTH_SNIPPET.replace("__PID__", project_id)
     if "</body>" in html:
         return html.replace("</body>", snippet + "</body>", 1)
     return html + snippet
 
 
-def _can_delete(user: Optional[dict], proj: dict) -> bool:
+def _can_modify(user: Optional[dict], proj: dict) -> bool:
+    """作者本人或管理员可改/可删。"""
     if not user:
         return False
     if proj.get("owner_id") == user["tforum_user_id"]:
@@ -221,8 +272,17 @@ def view_page(project_id: str, request: Request) -> HTMLResponse:
     if not html_path.exists():
         raise HTTPException(404, "展示页文件缺失")
     html = html_path.read_text(encoding="utf-8")
-    if _can_delete(_current_user(request), proj):
-        html = _inject_delete_button(html, project_id)
+    # 老页面没有 data-field 标记，按存储的 JSON 重新渲染一次升级
+    if "data-field" not in html and proj.get("generated_json") and proj.get("parsed_json"):
+        try:
+            import json as _json
+            from app.llm.renderer import render_page
+            html = render_page(_json.loads(proj["parsed_json"]), _json.loads(proj["generated_json"]))
+            html_path.write_text(html, encoding="utf-8")
+        except Exception:
+            log.warning("老页面升级失败: %s", project_id)
+    if _can_modify(_current_user(request), proj):
+        html = _inject_auth_tools(html, project_id)
     return HTMLResponse(html)
 
 
@@ -233,7 +293,7 @@ def remove_project(project_id: str, request: Request) -> JSONResponse:
     proj = get_project(project_id)
     if not proj:
         raise HTTPException(404, "项目不存在")
-    if not _can_delete(user, proj):
+    if not _can_modify(user, proj):
         raise HTTPException(403, "无权删除该项目")
 
     delete_project(project_id)
@@ -253,6 +313,53 @@ def remove_project(project_id: str, request: Request) -> JSONResponse:
         except Exception:
             pass
     log.info("项目 %s 已被 %s 删除", project_id, user.get("username"))
+    return JSONResponse({"ok": True})
+
+
+EDITABLE_FIELDS = {
+    "title", "one_line_summary", "architecture_overview", "getting_started",
+    "highlights", "use_cases", "tags", "tech_stack",
+}
+_LIST_FIELDS = {"highlights", "use_cases", "tags", "tech_stack"}
+
+
+class EditField(BaseModel):
+    field: str
+    value: Union[str, List[str]]
+
+
+@router.put("/projects/{project_id}")
+def edit_project(project_id: str, body: EditField, request: Request) -> JSONResponse:
+    """编辑项目某字段：仅作者或管理员。写回 generated_json，刷新卡片摘要，重渲染静态页。"""
+    user = _require_user(request)
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    if not _can_modify(user, proj):
+        raise HTTPException(403, "无权编辑该项目")
+    if body.field not in EDITABLE_FIELDS:
+        raise HTTPException(400, f"不支持编辑的字段: {body.field}")
+
+    if body.field in _LIST_FIELDS:
+        if not isinstance(body.value, list):
+            raise HTTPException(400, "该字段应为列表")
+        value = [str(x).strip() for x in body.value if str(x).strip()]
+    else:
+        if not isinstance(body.value, str):
+            raise HTTPException(400, "该字段应为文本")
+        value = body.value
+
+    import json as _json
+    from app.llm.renderer import render_page
+    parsed = _json.loads(proj["parsed_json"] or "{}")
+    gen = _json.loads(proj["generated_json"] or "{}")
+    gen[body.field] = value
+    update_generated(project_id, gen)
+    upsert_card(project_id, parsed, gen,
+                owner_name=proj["owner_name"], owner_id=proj["owner_id"])
+    html = render_page(parsed, gen)
+    Path(proj["html_path"]).write_text(html, encoding="utf-8")
+    log.info("项目 %s 的 %s 被 %s 编辑", project_id, body.field, user.get("username"))
     return JSONResponse({"ok": True})
 
 

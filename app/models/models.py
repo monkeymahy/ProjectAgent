@@ -130,6 +130,16 @@ def delete_project(project_id: str) -> None:
         conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
 
 
+def update_generated(project_id: str, generated: dict) -> None:
+    """编辑后写回 generated_json。"""
+    now = _now()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE projects SET generated_json=?, updated_at=? WHERE id=?",
+            (json.dumps(generated, ensure_ascii=False), now, project_id),
+        )
+
+
 def update_status(
     project_id: str,
     status: TaskStatus,
