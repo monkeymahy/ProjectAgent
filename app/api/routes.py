@@ -21,9 +21,9 @@ from app.core.config import settings
 from app.core.session import COOKIE_NAME, sign_session, verify_session
 from app.models.models import (
     create_project, get_project, delete_project, update_generated,
-    init_db, upsert_user, upsert_card, TaskStatus,
+    init_db, upsert_user, upsert_card, update_status, TaskStatus,
 )
-from app.tasks import process_project
+from app.tasks import process_project, sync_project
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -45,10 +45,10 @@ def _require_user(request: Request) -> dict:
     return user
 
 
-def _run_in_background(project_id: str) -> None:
+def _run_in_background(project_id: str, task=process_project) -> None:
     """eager 模式下在后台线程跑生成任务，避免阻塞提交接口。"""
     try:
-        process_project.run(project_id)
+        task.run(project_id)
     except Exception:
         # 任务内部已会 set_failed，这里是兜底
         log.exception("后台生成任务异常: %s", project_id)
@@ -56,13 +56,13 @@ def _run_in_background(project_id: str) -> None:
         set_failed(project_id, "后台任务异常")
 
 
-def _dispatch(project_id: str) -> None:
+def _dispatch(project_id: str, task=process_project) -> None:
     """提交立即返回：eager 用后台线程，否则丢给 Celery。"""
     if settings.eager_mode:
-        t = threading.Thread(target=_run_in_background, args=(project_id,), daemon=True)
+        t = threading.Thread(target=_run_in_background, args=(project_id, task), daemon=True)
         t.start()
     else:
-        process_project.delay(project_id)
+        task.delay(project_id)
 
 
 class SubmitURL(BaseModel):
@@ -183,6 +183,10 @@ _AUTH_SNIPPET = """
 border:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;
 box-shadow:0 6px 18px rgba(0,0,0,0.45);font-family:inherit;}
 .pa-fab:hover{background:#da3633;}
+.pa-sync{position:fixed;right:24px;bottom:84px;z-index:50;background:#58a6ff;color:#fff;
+border:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;
+box-shadow:0 6px 18px rgba(0,0,0,0.45);font-family:inherit;}
+.pa-sync:hover{background:#3b9eff;}
 .pa-edit-btn{display:inline-block;background:transparent;border:1px solid #30363d;color:#8b949e;
 padding:2px 9px;border-radius:6px;font-size:12px;cursor:pointer;margin-bottom:6px;font-family:inherit;}
 .pa-edit-btn:hover{border-color:#58a6ff;color:#58a6ff;}
@@ -193,6 +197,7 @@ border-radius:8px;padding:10px;font-family:inherit;font-size:14px;line-height:1.
 border:1px solid #30363d;background:#161b22;color:#c9d1d9;font-family:inherit;}
 .pa-edit-act .sv{background:#58a6ff;color:#fff;border-color:#58a6ff;}
 </style>
+<button class="pa-sync" onclick="paSync()">同步更新</button>
 <button class="pa-fab" onclick="paDelete()">删除项目</button>
 <script>
 var PA_PID="__PID__";
@@ -203,6 +208,16 @@ function paDelete(){
     if(r.status===401){alert('请先登录');return;}
     if(!r.ok){alert('删除失败');return;}
     alert('已删除');location.href='/';
+  }).catch(function(){alert('网络错误');});
+}
+function paSync(){
+  if(!confirm('从源仓库重新拉取代码并更新展示页？已生成的展示内容会被覆盖。'))return;
+  fetch('/projects/'+PA_PID+'/sync',{method:'POST'}).then(function(r){
+    if(r.status===403){alert('无权同步该项目');return;}
+    if(r.status===401){alert('请先登录');return;}
+    if(r.status===409){alert('项目正在生成中，请稍后再试');return;}
+    if(!r.ok){alert('同步失败');return;}
+    location.href='/projects/'+PA_PID+'/progress';
   }).catch(function(){alert('网络错误');});
 }
 function paVal(el,type){
@@ -376,6 +391,28 @@ def remove_project(project_id: str, request: Request) -> JSONResponse:
             pass
     log.info("项目 %s 已被 %s 删除", project_id, user.get("username"))
     return JSONResponse({"ok": True})
+
+
+@router.post("/projects/{project_id}/sync")
+def sync_project_api(project_id: str, request: Request) -> JSONResponse:
+    """同步更新：重新拉取源码并重生展示页。仅作者或管理员。
+
+    源码无变化时（source_hash 命中）由任务层跳过 LLM。生成中拒绝重复触发。
+    """
+    user = _require_user(request)
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    if not _can_modify(user, proj):
+        raise HTTPException(403, "无权同步该项目")
+    if proj["status"] in (
+        TaskStatus.CLONING.value, TaskStatus.PARSING.value, TaskStatus.GENERATING.value,
+    ):
+        raise HTTPException(409, "项目正在生成中，请稍后再试")
+    update_status(project_id, TaskStatus.PENDING, 0, "准备同步更新...")
+    _dispatch(project_id, task=sync_project)
+    log.info("项目 %s 被 %s 触发同步更新", project_id, user.get("username"))
+    return JSONResponse({"project_id": project_id, "status": "pending"})
 
 
 EDITABLE_FIELDS = {

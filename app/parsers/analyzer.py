@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -359,3 +360,30 @@ def analyze(repo_dir: Path) -> dict:
         "license": license_name or "未声明",
         "entry_hints": entry_hints,
     }
+
+
+def compute_source_hash(repo_dir: Path) -> str:
+    """对源码目录算整体指纹，用于检测源码是否变化（L0 跳过依据）。
+
+    覆盖范围与 _build_tree 一致：忽略 .git/node_modules 等，跳过隐藏文件。
+    纳入文件相对路径 + 内容，能反映重命名与内容修改。
+    """
+    h = hashlib.sha256()
+    files: list[str] = []
+    for root, dirs, fls in os.walk(repo_dir):
+        dirs[:] = sorted(d for d in dirs if d not in IGNORE_DIRS and not d.startswith("."))
+        for f in sorted(fls):
+            if f.startswith(".") and f not in (".gitignore", ".env.example"):
+                continue
+            full = Path(root) / f
+            rel = full.relative_to(repo_dir).as_posix()
+            files.append(rel)
+    for rel in sorted(files):
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        try:
+            h.update((repo_dir / rel).read_bytes())
+        except OSError:
+            h.update(b"<unreadable>")
+        h.update(b"\0")
+    return h.hexdigest()

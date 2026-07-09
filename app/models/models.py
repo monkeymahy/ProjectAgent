@@ -45,6 +45,7 @@ def init_db() -> None:
                 generated_json TEXT,
                 html_path TEXT,
                 template_version INTEGER NOT NULL DEFAULT 1,
+                source_hash TEXT,
                 error TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -57,6 +58,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE projects ADD COLUMN owner_name TEXT NOT NULL DEFAULT '匿名'")
         if "owner_id" not in cols:
             conn.execute("ALTER TABLE projects ADD COLUMN owner_id INTEGER")
+        if "source_hash" not in cols:
+            conn.execute("ALTER TABLE projects ADD COLUMN source_hash TEXT")
 
         conn.execute(
             """
