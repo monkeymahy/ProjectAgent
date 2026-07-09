@@ -86,6 +86,17 @@ def _http_chat(prompt: str) -> str:
         raise LLMError(f"LLM HTTP 错误: {e.response.status_code} {e.response.text[:200]}") from e
     except Exception as e:
         raise LLMError(f"LLM 调用失败: {e}") from e
+    try:
+        usage = data.get("usage") or {}
+        if usage:
+            log.info(
+                "LLM token 用量: prompt=%s completion=%s total=%s",
+                usage.get("prompt_tokens"),
+                usage.get("completion_tokens"),
+                usage.get("total_tokens"),
+            )
+    except Exception:
+        pass
     return data["choices"][0]["message"]["content"]
 
 
