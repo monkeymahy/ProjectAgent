@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
-from app.llm.schema import build_prompt, build_incremental_prompt
+from app.llm.schema import build_prompt, build_incremental_prompt, COMPACT_LIMITS
 
 log = logging.getLogger(__name__)
 
@@ -150,14 +150,29 @@ def fallback_generate(parsed: dict) -> dict[str, Any]:
     }
 
 
+def _is_context_too_large(e: LLMError) -> bool:
+    """判断 LLM 错误是否为上下文超限（不同 provider 文案不一，关键词匹配）。"""
+    msg = str(e).lower()
+    return any(k in msg for k in ("context", "length", "too long", "maximum", "token limit", "too many"))
+
+
 def generate(parsed: dict) -> dict[str, Any]:
-    """对外入口：优先调 LLM，失败/未配置则回退。"""
+    """对外入口：全量 prompt 调 LLM；上下文超限时压缩重试；仍失败则回退。"""
     try:
         result = call_llm(build_prompt(parsed))
         log.info("LLM 生成成功: title=%s", (result.get("title") or "")[:40])
         return result
     except LLMError as e:
-        log.warning("LLM 生成失败，使用回退：%s", e)
+        if _is_context_too_large(e):
+            log.warning("prompt 超出上下文，压缩后重试: %s", e)
+            try:
+                result = call_llm(build_prompt(parsed, limits=COMPACT_LIMITS))
+                log.info("LLM 压缩重试成功: title=%s", (result.get("title") or "")[:40])
+                return result
+            except LLMError as e2:
+                log.warning("压缩重试仍失败，使用回退: %s", e2)
+                return fallback_generate(parsed)
+        log.warning("LLM 生成失败，使用回退: %s", e)
         return fallback_generate(parsed)
 
 

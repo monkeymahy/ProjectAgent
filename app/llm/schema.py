@@ -91,24 +91,33 @@ def _build_context_hints(meta: dict) -> str:
     return "\n".join(hints) if hints else "无额外提示。"
 
 
-def _build_code_structure_text(code_structure: dict) -> str:
-    """把代码结构摘要格式化成文本，控制总长度。"""
+def _build_code_structure_text(code_structure: dict, limits: dict | None = None) -> str:
+    """把代码结构摘要格式化成文本。limits=None 全量；压缩重试时传限制。"""
     if not code_structure:
         return "（未提取到代码结构，可能语言暂不支持或无源码）"
+    lim = limits or {}
+    max_files = lim.get("max_files")
+    max_symbols = lim.get("max_symbols")
+    max_chars = lim.get("max_chars")
     lines: list[str] = []
     total = 0
-    for rel, symbols in list(code_structure.items())[:200]:
-        line = f"{rel}: {', '.join(symbols[:80])}"
+    for rel, symbols in code_structure.items():
+        if max_files is not None and len(lines) >= max_files:
+            lines.append("...（更多文件已省略）")
+            break
+        syms = symbols if max_symbols is None else symbols[:max_symbols]
+        line = f"{rel}: {', '.join(syms)}"
         lines.append(line)
         total += len(line)
-        if total > 60000:
+        if max_chars is not None and total > max_chars:
             lines.append("...（更多文件已省略）")
             break
     return "\n".join(lines)
 
 
-def _build_meta(parsed_metadata: dict) -> dict:
-    """精简 metadata，控制 token：readme 取前一部分，tree 取前 80 项。"""
+def _build_meta(parsed_metadata: dict, limits: dict | None = None) -> dict:
+    """构建 metadata。limits=None 全量；压缩重试时传限制（[:None] 即全量）。"""
+    lim = limits or {}
     return {
         "name": parsed_metadata.get("name"),
         "description": parsed_metadata.get("description"),
@@ -117,18 +126,25 @@ def _build_meta(parsed_metadata: dict) -> dict:
         "dependencies": parsed_metadata.get("dependencies"),
         "license": parsed_metadata.get("license"),
         "entry_hints": parsed_metadata.get("entry_hints"),
-        "tree": parsed_metadata.get("tree", [])[:500],
-        "readme": (parsed_metadata.get("readme_raw") or "")[:30000],
+        "tree": parsed_metadata.get("tree", [])[:lim.get("max_tree")],
+        "readme": (parsed_metadata.get("readme_raw") or "")[:lim.get("max_readme")],
     }
 
 
-def build_prompt(parsed_metadata: dict) -> str:
+# 压缩重试时用的截断限制：全量 prompt 超出上下文时，按此裁剪后重试。
+COMPACT_LIMITS = {
+    "max_files": 100, "max_symbols": 40, "max_chars": 40000,
+    "max_tree": 300, "max_readme": 10000,
+}
+
+
+def build_prompt(parsed_metadata: dict, limits: dict | None = None) -> str:
     import json
-    meta = _build_meta(parsed_metadata)
+    meta = _build_meta(parsed_metadata, limits)
     return PROMPT_TEMPLATE.format(
         schema=json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2),
         metadata=json.dumps(meta, ensure_ascii=False, indent=2),
-        code_structure=_build_code_structure_text(parsed_metadata.get("code_structure") or {}),
+        code_structure=_build_code_structure_text(parsed_metadata.get("code_structure") or {}, limits),
         context_hints=_build_context_hints(meta),
     )
 

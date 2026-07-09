@@ -95,11 +95,11 @@ ProjectAgent/
 | 配置 | 默认 | 作用 |
 |---|---|---|
 | `EAGER_MODE` | true | true=后台线程跑任务，false=丢 Celery |
-| `LLM_MAX_TOKENS` | 8000 | LLM 输出上限（config.yml 可覆盖，当前设 40000） |
+| `LLM_MAX_TOKENS` | 8000 | LLM **输出**上限（非上下文窗口；config.yml 可覆盖，128k 上下文下不宜设过大以免挤占输入） |
 | `LLM_TEMPERATURE` | 0.4 | |
 | `MAX_REPO_SIZE_MB` | 200 | 源码大小上限 |
-| `MAX_TREE_ENTRIES` | 1000 | 目录树最多条目 |
-| `MAX_README_CHARS` | 30000 | README 截断长度 |
+| `MAX_TREE_ENTRIES` | 100000 | 目录树最多条目（默认相当于不限） |
+| `MAX_README_CHARS` | 1000000 | README 截断长度（默认相当于不限） |
 | `CLONE_DEPTH` | 1 | git clone 深度 |
 
 ### 2.3 数据库表 [`models.py`](../app/models/models.py)
@@ -247,7 +247,7 @@ for name in zf.namelist():
   "tree": [path, ...],       # 扁平 posix 相对路径，≤ MAX_TREE_ENTRIES
   "license": str,            # MIT/Apache-2.0/BSD/GPL/文件名/"未声明"
   "entry_hints": [str],      # 入口文件候选，≤5
-  "code_structure": {rel: [symbol]},  # tree-sitter 提取，≤200 文件
+  "code_structure": {rel: [symbol]},  # tree-sitter 全量提取（不限文件数）
 }
 ```
 
@@ -293,7 +293,7 @@ LICENSE/CHANGELOG/.gitignore 等 -> 非关键
 其余（源码/配置）            -> 关键
 ```
 
-**`extract_code_structure(repo_dir, max_files=200)`**——tree-sitter 符号提取（阶段3）：
+**`extract_code_structure(repo_dir)`**——tree-sitter 符号提取（阶段3）：
 
 ```
 for rel in walk_repo_files(repo):
@@ -304,8 +304,7 @@ for rel in walk_repo_files(repo):
     caps = QueryCursor(query).captures(tree.root_node)  # {tag: [Node]}
     items = [(start_byte, label, name) for tag,nodes in caps ...]
     items.sort()                          # 按源码出现顺序
-    result[rel] = [f"{label} {name}" for ... in items[:80]]  # 每文件≤80符号
-    if len(result) >= max_files: break
+    result[rel] = [f"{label} {name}" for ... in items]  # 全量符号，不截断
 ```
 
 `_ts_parser(ext)` 按扩展名返回 `(Parser, Query)`，lru_cache：
@@ -343,8 +342,8 @@ README*    -> [title, one_line_summary, getting_started, highlights]
 ```
 
 **`build_prompt(parsed)`**——拼全量 prompt：
-- `_build_meta`：精简 metadata（tree 取前 500，readme 取前 30000）控 token。
-- `_build_code_structure_text`：代码结构格式化文本，最多 200 文件、每文件 80 符号、总长 60000 字符截断。
+- `_build_meta`：精简 metadata。`limits=None` 时全量；压缩重试时按 `COMPACT_LIMITS` 截断。
+- `_build_code_structure_text`：代码结构格式化文本。`limits=None` 时全量；压缩重试时按 `COMPACT_LIMITS`（100 文件/40 符号/40000 字符）截断。
 - `_build_context_hints`：按元数据特征动态生成提示（无 README/无依赖清单/无入口/无 license 时引导 LLM 留空而非瞎编）。
 - 套 `PROMPT_TEMPLATE`：硬性要求（不编造/信息不足留空/纯 JSON）+ schema + metadata + 代码结构 + 上下文提示。
 
@@ -363,7 +362,7 @@ body: {model, messages:[system,user], temperature, max_tokens}
 
 **`call_llm(prompt)`**：调 `_http_chat` + `_extract_json`；首次解析失败则改写 retry_prompt（提醒严格 JSON）重试一次。
 
-**`generate(parsed)`**：`call_llm(build_prompt(parsed))`，失败/未配 key 则 `fallback_generate`（纯元数据拼占位内容，保证链路可跑）。
+**`generate(parsed)`**：`call_llm(build_prompt(parsed))` 全量调用；若报上下文超限（`_is_context_too_large` 关键词匹配 "context/length/too long/maximum/token limit/too many"），改用 `build_prompt(parsed, COMPACT_LIMITS)` 压缩重试一次；仍失败或未配 key 则 `fallback_generate`（纯元数据拼占位内容，保证链路可跑）。
 
 **`generate_incremental(parsed, old_generated, changed_files, affected_fields)`**（L2）：
 - `build_incremental_prompt`：喂旧 generated + 变化文件 + 受影响字段 + 最新 metadata + 最新 code_structure，要求**只输出受影响字段**。
@@ -554,9 +553,10 @@ new_generated = {**old_generated, **filtered} if filtered else old_generated
 
 | 点 | 说明 |
 |---|---|
-| **max_tokens 上限** | 默认 8000（config.yml 当前设 40000）。大项目仍需关注 completion 是否逼近上限，接近则 JSON 截断触发重试白烧 token。 |
-| **tree-sitter 仅 4 语言** | 只支持 .py/.js/.jsx/.ts/.tsx，其他语言 `code_structure` 为空，LLM 退回靠 README+tree。 |
-| **符号标签 Python 中心** | `extract_code_structure` 的 labels 把所有语言的 `func` 标成 `def`（TS 函数也显示 `def xxx`），纯展示问题，不影响功能。 |
+| **max_tokens 上限** | 默认 8000（config.yml 可覆盖）。此为**输出**上限，非上下文窗口；128k 上下文下不宜设过大以免挤占输入。 |
+| **全量提取 prompt 体积** | 不再截断文件/符号数量，大仓库 prompt 可能超上下文；由 `generate` 的压缩重试（`COMPACT_LIMITS`）兜底，仍失败则 `fallback_generate`。 |
+| **tree-sitter 语言覆盖** | 支持 14 语言 19 扩展（.py/.js/.jsx/.ts/.tsx/.go/.rs/.java/.kt/.c/.h/.cpp/.cc/.hpp/.cs/.rb/.php/.sh/.bash），其他语言 `code_structure` 为空，LLM 退回靠 README+tree。 |
+| **符号标签语言感知** | `_TS_LANGUAGES` 表为每种语言配独立 labels（Python `def`、Rust `fn`、Go `func`、Kotlin `fun`、Java `method` 等），不再是 Python 中心。 |
 | **重命名计入变化** | `_diff_file_hashes` 按 rel 比对，文件重命名算删+增，可能把 L1 推成 L2（若新路径是关键文件）。 |
 | **L2 上限 5 个关键文件** | 超过则全量，避免增量 prompt 过大或字段漂移。 |
 | **eager 模式线程** | 默认 `EAGER_MODE=true`，任务在 daemon 线程跑，进程退出则任务丢失；生产应切 Celery + worker。 |

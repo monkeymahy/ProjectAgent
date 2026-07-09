@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     max_repo_size_mb: int = int(_raw.get("MAX_REPO_SIZE_MB", 200))
     clone_depth: int = int(_raw.get("CLONE_DEPTH", 1))
     clone_timeout: int = int(_raw.get("CLONE_TIMEOUT", 120))
-    max_tree_entries: int = int(_raw.get("MAX_TREE_ENTRIES", 1000))
-    max_readme_chars: int = int(_raw.get("MAX_README_CHARS", 30000))
+    max_tree_entries: int = int(_raw.get("MAX_TREE_ENTRIES", 100000))
+    max_readme_chars: int = int(_raw.get("MAX_README_CHARS", 1000000))
 
     eager_mode: bool = bool(_raw.get("EAGER_MODE", True))
 

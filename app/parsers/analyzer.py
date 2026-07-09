@@ -577,12 +577,13 @@ def _ts_parser(ext: str):
         return None
 
 
-def extract_code_structure(repo_dir: Path, max_files: int = 200) -> dict[str, list[str]]:
+def extract_code_structure(repo_dir: Path) -> dict[str, list[str]]:
     """用 tree-sitter 提取源码符号（函数/类/方法名），给 LLM 喂真实代码结构。
 
     解决 architecture_overview 瞎编：让 LLM 看到真实代码组织而非只靠 README。
-    返回 {rel_path: ["def foo", "class Bar", ...]}，最多 max_files 个文件。
-    tree-sitter 不可用或无源码时返回 {}。
+    全量提取所有支持语言的源码文件符号，不做数量截断——超大仓库的 prompt 体积
+    由 LLM 调用层的压缩兜底处理（见 client.generate 的 context 超限重试）。
+    返回 {rel_path: ["def foo", "class Bar", ...]}。tree-sitter 不可用或无源码时返回 {}。
     """
     result: dict[str, list[str]] = {}
     for rel in _walk_repo_files(repo_dir):
@@ -604,13 +605,11 @@ def extract_code_structure(repo_dir: Path, max_files: int = 200) -> dict[str, li
                     name = content[n.start_byte:n.end_byte].decode("utf-8", "ignore")
                     items.append((n.start_byte, label, name))
             items.sort()
-            symbols = [f"{label} {name}" for _, label, name in items[:80]]
+            symbols = [f"{label} {name}" for _, label, name in items]
             if symbols:
                 result[rel] = symbols
         except Exception:
             continue
-        if len(result) >= max_files:
-            break
     return result
 
 
