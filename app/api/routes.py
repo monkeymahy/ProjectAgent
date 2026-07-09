@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import tempfile
 import threading
 import uuid
+import zipfile
 import logging
 from pathlib import Path
 from typing import Optional, Union, List
@@ -13,6 +15,7 @@ import httpx
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from app.core.config import settings
 from app.core.session import COOKIE_NAME, sign_session, verify_session
@@ -272,18 +275,77 @@ def view_page(project_id: str, request: Request) -> HTMLResponse:
     if not html_path.exists():
         raise HTTPException(404, "展示页文件缺失")
     html = html_path.read_text(encoding="utf-8")
-    # 老页面没有 data-field 标记，按存储的 JSON 重新渲染一次升级
-    if "data-field" not in html and proj.get("generated_json") and proj.get("parsed_json"):
+    # 老页面缺标记时按存储的 JSON 重新渲染升级：data-field（编辑功能）/ pa-src-links（源码链接）
+    if (("data-field" not in html or "pa-src-links" not in html)
+            and proj.get("generated_json") and proj.get("parsed_json")):
         try:
             import json as _json
             from app.llm.renderer import render_page
-            html = render_page(_json.loads(proj["parsed_json"]), _json.loads(proj["generated_json"]))
+            html = render_page(
+                _json.loads(proj["parsed_json"]), _json.loads(proj["generated_json"]),
+                project_id=project_id,
+                source=proj.get("source") or "",
+                source_type=proj.get("source_type") or "",
+            )
             html_path.write_text(html, encoding="utf-8")
         except Exception:
             log.warning("老页面升级失败: %s", project_id)
     if _can_modify(_current_user(request), proj):
         html = _inject_auth_tools(html, project_id)
     return HTMLResponse(html)
+
+
+def _zip_dir(src_dir: Path, dest_zip: Path) -> None:
+    """把目录打包成 zip，排除 .git。dest_zip 须是不存在的文件路径。"""
+    with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in src_dir.rglob("*"):
+            if ".git" in path.parts:
+                continue
+            if path.is_file():
+                zf.write(path, path.relative_to(src_dir))
+
+
+@router.get("/projects/{project_id}/download")
+def download_project(project_id: str):
+    """下载项目源码包：zip 上传的直接返回原包；url/local 现场打包 repos/{id}（排除 .git）。"""
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "项目不存在")
+    if proj["status"] != TaskStatus.DONE.value:
+        raise HTTPException(409, f"项目尚未就绪，当前状态: {proj['status']}")
+
+    source_type = proj.get("source_type")
+    base_name = proj.get("source") or project_id
+
+    if source_type == "zip":
+        zip_path = settings.uploads_dir / f"{project_id}.zip"
+        if not zip_path.exists():
+            raise HTTPException(404, "原始压缩包已丢失")
+        return FileResponse(
+            str(zip_path),
+            media_type="application/zip",
+            filename=f"{project_id}.zip",
+        )
+
+    repo_dir = settings.repos_dir / project_id
+    if not repo_dir.exists():
+        raise HTTPException(404, "项目源码目录已丢失")
+
+    tmp = Path(tempfile.mkstemp(suffix=".zip", prefix=f"pa_{project_id}_")[1])
+    _zip_dir(repo_dir, tmp)
+    return FileResponse(
+        str(tmp),
+        media_type="application/zip",
+        filename=f"{project_id}.zip",
+        background=BackgroundTask(lambda: _cleanup_tmp(tmp)),
+    )
+
+
+def _cleanup_tmp(path: Path) -> None:
+    try:
+        path.unlink()
+    except Exception:
+        log.warning("清理临时 zip 失败: %s", path)
 
 
 @router.delete("/projects/{project_id}")
@@ -357,7 +419,12 @@ def edit_project(project_id: str, body: EditField, request: Request) -> JSONResp
     update_generated(project_id, gen)
     upsert_card(project_id, parsed, gen,
                 owner_name=proj["owner_name"], owner_id=proj["owner_id"])
-    html = render_page(parsed, gen)
+    html = render_page(
+        parsed, gen,
+        project_id=project_id,
+        source=proj.get("source") or "",
+        source_type=proj.get("source_type") or "",
+    )
     Path(proj["html_path"]).write_text(html, encoding="utf-8")
     log.info("项目 %s 的 %s 被 %s 编辑", project_id, body.field, user.get("username"))
     return JSONResponse({"ok": True})

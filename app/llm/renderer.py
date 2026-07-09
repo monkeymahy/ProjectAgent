@@ -67,7 +67,13 @@ def _sanitize_text_fields(gen: dict) -> dict:
     return out
 
 
-def render_page(parsed: dict, generated: dict) -> str:
+def render_page(
+    parsed: dict,
+    generated: dict,
+    project_id: str = "",
+    source: str = "",
+    source_type: str = "",
+) -> str:
     gen = _sanitize_text_fields(generated)
     template = _env.get_template("project_page.html")
     html = template.render(
@@ -87,6 +93,10 @@ def render_page(parsed: dict, generated: dict) -> str:
         tree=parsed.get("tree", []),
         tree_text=_build_tree_text(parsed.get("tree", [])),
         readme_html=parsed.get("readme_html", ""),
+        # 源码链接
+        project_id=project_id,
+        source=source or "",
+        source_type=source_type or "",
         template_version=TEMPLATE_VERSION,
     )
     return html

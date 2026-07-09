@@ -51,7 +51,10 @@ def process_project(self, project_id: str) -> None:
 
         # 4. 渲染
         update_status(project_id, TaskStatus.GENERATING, 85, "正在渲染展示页...")
-        html = render_page(parsed, generated)
+        html = render_page(
+            parsed, generated,
+            project_id=project_id, source=source, source_type=source_type,
+        )
 
         # 5. 落盘
         page_path = settings.pages_dir / f"{project_id}.html"
