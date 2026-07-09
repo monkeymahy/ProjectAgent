@@ -15,9 +15,9 @@ from app.models.models import (
 )
 from app.sandbox.fetcher import fetch_url, fetch_zip, fetch_local, FetchError
 from app.parsers.analyzer import (
-    analyze, compute_source_hash, compute_file_hashes, is_non_critical,
+    analyze, compute_source_hash, compute_file_hashes, is_non_critical, affected_fields,
 )
-from app.llm.client import generate
+from app.llm.client import generate, generate_incremental
 from app.llm.renderer import render_page
 
 log = logging.getLogger(__name__)
@@ -133,6 +133,47 @@ def _run_pipeline(project_id: str, project: dict) -> None:
                 html_path=str(page_path), source_hash=new_hash,
             )
             log.info("项目 %s L1 更新完成（跳过 LLM）", project_id)
+            return
+
+        # L2: 关键文件少量变化，增量更新受影响字段（不调全量 LLM）
+        critical_changed = [rel for rel in changed if not is_non_critical(rel)]
+        if old_hash and project.get("generated_json") and critical_changed and len(critical_changed) <= 5:
+            log.info(
+                "项目 %s L2 增量更新: 关键文件变化 %d 个 %s",
+                project_id, len(critical_changed), critical_changed[:5],
+            )
+            update_status(project_id, TaskStatus.PARSING, 35, "正在解析项目结构...")
+            parsed = analyze(repo_dir)
+            raw_gen = project["generated_json"]
+            old_generated = json.loads(raw_gen) if isinstance(raw_gen, str) else raw_gen
+            affected = affected_fields(critical_changed)
+            update_status(project_id, TaskStatus.GENERATING, 60, "正在增量更新展示内容...")
+            incremental = generate_incremental(parsed, old_generated, critical_changed, affected)
+            filtered = {k: v for k, v in incremental.items() if k in affected}
+            new_generated = {**old_generated, **filtered} if filtered else old_generated
+            update_status(project_id, TaskStatus.GENERATING, 85, "正在渲染展示页...")
+            html = render_page(
+                parsed, new_generated,
+                project_id=project_id, source=source, source_type=source_type,
+            )
+            page_path = settings.pages_dir / f"{project_id}.html"
+            _atomic_write_html(page_path, html)
+            upsert_card(
+                project_id, parsed, new_generated,
+                owner_name=project.get("owner_name", "匿名"),
+                owner_id=project.get("owner_id"),
+            )
+            save_file_hashes(project_id, new_file_hashes)
+            msg = "增量更新完成" if filtered else "增量 LLM 失败，保持旧内容"
+            update_status(
+                project_id, TaskStatus.DONE, 100, msg,
+                parsed_json=parsed, generated_json=new_generated,
+                html_path=str(page_path), source_hash=new_hash,
+            )
+            log.info(
+                "项目 %s L2 更新完成: 更新字段 %s",
+                project_id, list(filtered.keys()) if filtered else [],
+            )
             return
 
         if old_hash:

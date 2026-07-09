@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
-from app.llm.schema import build_prompt
+from app.llm.schema import build_prompt, build_incremental_prompt
 
 log = logging.getLogger(__name__)
 
@@ -159,3 +159,19 @@ def generate(parsed: dict) -> dict[str, Any]:
     except LLMError as e:
         log.warning("LLM 生成失败，使用回退：%s", e)
         return fallback_generate(parsed)
+
+
+def generate_incremental(
+    parsed: dict, old_generated: dict, changed_files: list[str], affected_fields: list[str],
+) -> dict:
+    """L2 增量：只更新受影响字段。失败/未配置返回 {}，调用方保持旧值。"""
+    if not settings.llm.api_key:
+        log.warning("L2 增量需要 LLM，未配置 API key")
+        return {}
+    try:
+        result = call_llm(build_incremental_prompt(parsed, old_generated, changed_files, affected_fields))
+        log.info("L2 增量成功: 更新字段=%s", list(result.keys()))
+        return result
+    except LLMError as e:
+        log.warning("L2 增量 LLM 失败，保持旧值: %s", e)
+        return {}

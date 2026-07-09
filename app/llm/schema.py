@@ -107,10 +107,9 @@ def _build_code_structure_text(code_structure: dict) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(parsed_metadata: dict) -> str:
-    import json
-    # 精简 metadata，控制 token：readme 取前一部分，tree 取前 80 项
-    meta = {
+def _build_meta(parsed_metadata: dict) -> dict:
+    """精简 metadata，控制 token：readme 取前一部分，tree 取前 80 项。"""
+    return {
         "name": parsed_metadata.get("name"),
         "description": parsed_metadata.get("description"),
         "languages": parsed_metadata.get("languages"),
@@ -121,9 +120,51 @@ def build_prompt(parsed_metadata: dict) -> str:
         "tree": parsed_metadata.get("tree", [])[:80],
         "readme": (parsed_metadata.get("readme_raw") or "")[:4000],
     }
+
+
+def build_prompt(parsed_metadata: dict) -> str:
+    import json
+    meta = _build_meta(parsed_metadata)
     return PROMPT_TEMPLATE.format(
         schema=json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2),
         metadata=json.dumps(meta, ensure_ascii=False, indent=2),
         code_structure=_build_code_structure_text(parsed_metadata.get("code_structure") or {}),
         context_hints=_build_context_hints(meta),
+    )
+
+
+INCREMENTAL_TEMPLATE = """项目源码有部分更新，请基于最新信息只更新受影响的字段。
+
+【旧的项目展示内容】
+{old_generated}
+
+【变化的文件】
+{changed_files}
+
+【需要更新的字段】（只输出这些字段，其他不要输出）
+{affected_fields}
+
+【最新项目元数据】
+{metadata}
+
+【最新代码结构】
+{code_structure}
+
+【硬性要求】
+1. 只输出"需要更新的字段"中列出的字段，其他字段不要输出。
+2. 基于最新元数据和代码结构更新这些字段，不要编造不存在的功能。
+3. 输出纯 JSON，无 markdown 围栏，无解释文字。
+现在输出 JSON："""
+
+
+def build_incremental_prompt(
+    parsed: dict, old_generated: dict, changed_files: list[str], affected_fields: list[str],
+) -> str:
+    import json
+    return INCREMENTAL_TEMPLATE.format(
+        old_generated=json.dumps(old_generated, ensure_ascii=False, indent=2),
+        changed_files="\n".join(changed_files),
+        affected_fields=", ".join(affected_fields),
+        metadata=json.dumps(_build_meta(parsed), ensure_ascii=False, indent=2),
+        code_structure=_build_code_structure_text(parsed.get("code_structure") or {}),
     )

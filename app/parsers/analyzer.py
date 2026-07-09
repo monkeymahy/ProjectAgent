@@ -526,3 +526,20 @@ def extract_code_structure(repo_dir: Path, max_files: int = 40) -> dict[str, lis
         if len(result) >= max_files:
             break
     return result
+
+
+def affected_fields(changed_files: list[str]) -> list[str]:
+    """根据变化的文件推断受影响的展示页字段（L2 增量更新依据）。
+
+    README 变 -> 标题/摘要/上手/亮点；依赖清单变 -> 技术栈；源码变 -> 架构/亮点/场景。
+    """
+    fields: set[str] = set()
+    for rel in changed_files:
+        name = rel.split("/")[-1]
+        if name.upper().startswith("README"):
+            fields.update(["title", "one_line_summary", "getting_started", "highlights"])
+        elif name in DEP_FILES:
+            fields.add("tech_stack")
+        else:
+            fields.update(["architecture_overview", "highlights", "use_cases"])
+    return sorted(fields)
