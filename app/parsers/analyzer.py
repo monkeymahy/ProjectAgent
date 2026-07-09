@@ -454,43 +454,130 @@ def is_non_critical(rel_path: str) -> bool:
     return False
 
 
+# 扩展名 -> (包名, 语言函数名, query, 标签映射)
+# 标签映射: {capture_tag: 显示前缀}，让符号标签符合各语言习惯（Python 用 def，Rust 用 fn…）。
+# 包未安装时 _ts_parser 的 import 失败被 except 吞掉，该语言自动跳过，不报错。
+_TS_LANGUAGES: dict[str, tuple[str, str, str, dict[str, str]]] = {
+    ".py": ("tree_sitter_python", "language",
+            "(function_definition name: (identifier) @func) "
+            "(class_definition name: (identifier) @class)",
+            {"func": "def", "class": "class"}),
+    ".js": ("tree_sitter_javascript", "language",
+            "(function_declaration name: (identifier) @func) "
+            "(class_declaration name: (identifier) @class) "
+            "(method_definition name: (property_identifier) @method)",
+            {"func": "function", "class": "class", "method": "method"}),
+    ".jsx": ("tree_sitter_javascript", "language",
+             "(function_declaration name: (identifier) @func) "
+             "(class_declaration name: (identifier) @class) "
+             "(method_definition name: (property_identifier) @method)",
+             {"func": "function", "class": "class", "method": "method"}),
+    ".ts": ("tree_sitter_typescript", "language_typescript",
+            "(function_declaration name: (identifier) @func) "
+            "(class_declaration name: (type_identifier) @class) "
+            "(method_definition name: (property_identifier) @method)",
+            {"func": "function", "class": "class", "method": "method"}),
+    ".tsx": ("tree_sitter_typescript", "language_tsx",
+             "(function_declaration name: (identifier) @func) "
+             "(class_declaration name: (type_identifier) @class) "
+             "(method_definition name: (property_identifier) @method)",
+             {"func": "function", "class": "class", "method": "method"}),
+    ".go": ("tree_sitter_go", "language",
+            "(function_declaration name: (identifier) @func) "
+            "(method_declaration name: (field_identifier) @method) "
+            "(type_declaration (type_spec name: (type_identifier) @type))",
+            {"func": "func", "method": "method", "type": "type"}),
+    ".rs": ("tree_sitter_rust", "language",
+            "(function_item name: (identifier) @func) "
+            "(struct_item name: (type_identifier) @struct) "
+            "(enum_item name: (type_identifier) @enum) "
+            "(trait_item name: (type_identifier) @trait)",
+            {"func": "fn", "struct": "struct", "enum": "enum", "trait": "trait"}),
+    ".java": ("tree_sitter_java", "language",
+              "(class_declaration name: (identifier) @class) "
+              "(interface_declaration name: (identifier) @class) "
+              "(enum_declaration name: (identifier) @class) "
+              "(method_declaration name: (identifier) @method)",
+              {"class": "class", "method": "method"}),
+    ".kt": ("tree_sitter_kotlin", "language",
+            "(function_declaration name: (identifier) @func) "
+            "(class_declaration name: (identifier) @class) "
+            "(object_declaration name: (identifier) @class)",
+            {"func": "fun", "class": "class"}),
+    ".c": ("tree_sitter_c", "language",
+           "(function_definition declarator: (function_declarator declarator: (identifier) @func)) "
+           "(struct_specifier name: (type_identifier) @struct) "
+           "(type_definition declarator: (type_identifier) @type)",
+           {"func": "function", "struct": "struct", "type": "typedef"}),
+    ".h": ("tree_sitter_c", "language",
+           "(function_definition declarator: (function_declarator declarator: (identifier) @func)) "
+           "(struct_specifier name: (type_identifier) @struct) "
+           "(type_definition declarator: (type_identifier) @type)",
+           {"func": "function", "struct": "struct", "type": "typedef"}),
+    ".cpp": ("tree_sitter_cpp", "language",
+             "(function_definition declarator: (function_declarator declarator: (identifier) @func)) "
+             "(class_specifier name: (type_identifier) @class) "
+             "(struct_specifier name: (type_identifier) @struct)",
+             {"func": "function", "class": "class", "struct": "struct"}),
+    ".cc": ("tree_sitter_cpp", "language",
+            "(function_definition declarator: (function_declarator declarator: (identifier) @func)) "
+            "(class_specifier name: (type_identifier) @class) "
+            "(struct_specifier name: (type_identifier) @struct)",
+            {"func": "function", "class": "class", "struct": "struct"}),
+    ".hpp": ("tree_sitter_cpp", "language",
+             "(function_definition declarator: (function_declarator declarator: (identifier) @func)) "
+             "(class_specifier name: (type_identifier) @class) "
+             "(struct_specifier name: (type_identifier) @struct)",
+             {"func": "function", "class": "class", "struct": "struct"}),
+    ".cs": ("tree_sitter_c_sharp", "language",
+            "(class_declaration name: (identifier) @class) "
+            "(interface_declaration name: (identifier) @class) "
+            "(struct_declaration name: (identifier) @class) "
+            "(method_declaration name: (identifier) @method)",
+            {"class": "class", "method": "method"}),
+    ".rb": ("tree_sitter_ruby", "language",
+            "(method name: (identifier) @method) "
+            "(singleton_method name: (identifier) @method) "
+            "(class name: (constant) @class) "
+            "(module name: (constant) @class)",
+            {"method": "def", "class": "class"}),
+    ".php": ("tree_sitter_php", "language_php",
+             "(function_definition name: (name) @func) "
+             "(method_declaration name: (name) @method) "
+             "(class_declaration name: (name) @class) "
+             "(interface_declaration name: (name) @class)",
+             {"func": "function", "method": "method", "class": "class"}),
+    ".sh": ("tree_sitter_bash", "language",
+            "(function_definition name: (word) @func)",
+            {"func": "function"}),
+    ".bash": ("tree_sitter_bash", "language",
+              "(function_definition name: (word) @func)",
+              {"func": "function"}),
+}
+
+
 @functools.lru_cache(maxsize=None)
 def _ts_parser(ext: str):
-    """为扩展名返回 (parser, query)，缓存。不可用返回 None。"""
+    """为扩展名返回 (parser, query, labels)，缓存。不可用返回 None。
+
+    包未安装或 query 不兼容时静默跳过该语言。
+    """
     if not _TS_AVAILABLE:
         return None
+    cfg = _TS_LANGUAGES.get(ext)
+    if not cfg:
+        return None
+    pkg_name, lang_func, query_src, labels = cfg
     try:
-        if ext == ".py":
-            import tree_sitter_python as tsp
-            lang = Language(tsp.language())
-            q = ("(function_definition name: (identifier) @func) "
-                 "(class_definition name: (identifier) @class)")
-        elif ext in (".js", ".jsx"):
-            import tree_sitter_javascript as tsjs
-            lang = Language(tsjs.language())
-            q = ("(function_declaration name: (identifier) @func) "
-                 "(class_declaration name: (identifier) @class) "
-                 "(method_definition name: (property_identifier) @method)")
-        elif ext == ".ts":
-            import tree_sitter_typescript as tsts
-            lang = Language(tsts.language_typescript())
-            q = ("(function_declaration name: (identifier) @func) "
-                 "(class_declaration name: (type_identifier) @class) "
-                 "(method_definition name: (property_identifier) @method)")
-        elif ext == ".tsx":
-            import tree_sitter_typescript as tsts
-            lang = Language(tsts.language_tsx())
-            q = ("(function_declaration name: (identifier) @func) "
-                 "(class_declaration name: (type_identifier) @class) "
-                 "(method_definition name: (property_identifier) @method)")
-        else:
-            return None
-        return Parser(lang), Query(lang, q)
+        import importlib
+        mod = importlib.import_module(pkg_name)
+        lang = Language(getattr(mod, lang_func)())
+        return Parser(lang), Query(lang, query_src), labels
     except Exception:
         return None
 
 
-def extract_code_structure(repo_dir: Path, max_files: int = 40) -> dict[str, list[str]]:
+def extract_code_structure(repo_dir: Path, max_files: int = 200) -> dict[str, list[str]]:
     """用 tree-sitter 提取源码符号（函数/类/方法名），给 LLM 喂真实代码结构。
 
     解决 architecture_overview 瞎编：让 LLM 看到真实代码组织而非只靠 README。
@@ -507,18 +594,17 @@ def extract_code_structure(repo_dir: Path, max_files: int = 40) -> dict[str, lis
             continue
         try:
             content = (repo_dir / rel).read_bytes()
-            parser, query = pq
+            parser, query, labels = pq
             tree = parser.parse(content)
             caps = QueryCursor(query).captures(tree.root_node)
             items: list[tuple[int, str, str]] = []
-            labels = {"func": "def", "class": "class", "method": "method"}
             for tag, nodes in caps.items():
                 label = labels.get(tag, tag)
                 for n in nodes:
                     name = content[n.start_byte:n.end_byte].decode("utf-8", "ignore")
                     items.append((n.start_byte, label, name))
             items.sort()
-            symbols = [f"{label} {name}" for _, label, name in items[:30]]
+            symbols = [f"{label} {name}" for _, label, name in items[:80]]
             if symbols:
                 result[rel] = symbols
         except Exception:

@@ -24,7 +24,7 @@ class LLMConfig(BaseModel):
     base_url: str = _raw.get("LLM_BASE_URL", "https://api.openai.com/v1")
     model: str = _raw.get("LLM_MODEL", "gpt-4o-mini")
     temperature: float = float(_raw.get("LLM_TEMPERATURE", 0.4))
-    max_tokens: int = int(_raw.get("LLM_MAX_TOKENS", 2000))
+    max_tokens: int = int(_raw.get("LLM_MAX_TOKENS", 8000))
     timeout: int = int(_raw.get("LLM_TIMEOUT", 60))
 
 
@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     max_repo_size_mb: int = int(_raw.get("MAX_REPO_SIZE_MB", 200))
     clone_depth: int = int(_raw.get("CLONE_DEPTH", 1))
     clone_timeout: int = int(_raw.get("CLONE_TIMEOUT", 120))
-    max_tree_entries: int = int(_raw.get("MAX_TREE_ENTRIES", 200))
-    max_readme_chars: int = int(_raw.get("MAX_README_CHARS", 8000))
+    max_tree_entries: int = int(_raw.get("MAX_TREE_ENTRIES", 1000))
+    max_readme_chars: int = int(_raw.get("MAX_README_CHARS", 30000))
 
     eager_mode: bool = bool(_raw.get("EAGER_MODE", True))
 

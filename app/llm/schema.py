@@ -97,11 +97,11 @@ def _build_code_structure_text(code_structure: dict) -> str:
         return "（未提取到代码结构，可能语言暂不支持或无源码）"
     lines: list[str] = []
     total = 0
-    for rel, symbols in list(code_structure.items())[:30]:
-        line = f"{rel}: {', '.join(symbols[:15])}"
+    for rel, symbols in list(code_structure.items())[:200]:
+        line = f"{rel}: {', '.join(symbols[:80])}"
         lines.append(line)
         total += len(line)
-        if total > 2500:
+        if total > 60000:
             lines.append("...（更多文件已省略）")
             break
     return "\n".join(lines)
@@ -117,8 +117,8 @@ def _build_meta(parsed_metadata: dict) -> dict:
         "dependencies": parsed_metadata.get("dependencies"),
         "license": parsed_metadata.get("license"),
         "entry_hints": parsed_metadata.get("entry_hints"),
-        "tree": parsed_metadata.get("tree", [])[:80],
-        "readme": (parsed_metadata.get("readme_raw") or "")[:4000],
+        "tree": parsed_metadata.get("tree", [])[:500],
+        "readme": (parsed_metadata.get("readme_raw") or "")[:30000],
     }
 
 
