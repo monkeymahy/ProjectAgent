@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 import re
@@ -23,6 +24,12 @@ import markdown as md
 import bleach
 
 from app.core.config import settings
+
+try:
+    from tree_sitter import Parser, Language, Query, QueryCursor
+    _TS_AVAILABLE = True
+except ImportError:
+    _TS_AVAILABLE = False
 
 # 扩展名 -> 语言（精简版，类似 Linguist）
 EXT_LANG = {
@@ -348,6 +355,8 @@ def analyze(repo_dir: Path) -> dict:
     entry_hints = _infer_entry_hints(repo_dir, tree)
     license_name = _find_license(repo_dir)
 
+    code_structure = extract_code_structure(repo_dir)
+
     return {
         "name": name,
         "description": description,
@@ -359,6 +368,7 @@ def analyze(repo_dir: Path) -> dict:
         "tree": tree,
         "license": license_name or "未声明",
         "entry_hints": entry_hints,
+        "code_structure": code_structure,
     }
 
 
@@ -442,3 +452,77 @@ def is_non_critical(rel_path: str) -> bool:
         return True
     # 其余（源码、配置等）-> 关键
     return False
+
+
+@functools.lru_cache(maxsize=None)
+def _ts_parser(ext: str):
+    """为扩展名返回 (parser, query)，缓存。不可用返回 None。"""
+    if not _TS_AVAILABLE:
+        return None
+    try:
+        if ext == ".py":
+            import tree_sitter_python as tsp
+            lang = Language(tsp.language())
+            q = ("(function_definition name: (identifier) @func) "
+                 "(class_definition name: (identifier) @class)")
+        elif ext in (".js", ".jsx"):
+            import tree_sitter_javascript as tsjs
+            lang = Language(tsjs.language())
+            q = ("(function_declaration name: (identifier) @func) "
+                 "(class_declaration name: (identifier) @class) "
+                 "(method_definition name: (property_identifier) @method)")
+        elif ext == ".ts":
+            import tree_sitter_typescript as tsts
+            lang = Language(tsts.language_typescript())
+            q = ("(function_declaration name: (identifier) @func) "
+                 "(class_declaration name: (type_identifier) @class) "
+                 "(method_definition name: (property_identifier) @method)")
+        elif ext == ".tsx":
+            import tree_sitter_typescript as tsts
+            lang = Language(tsts.language_tsx())
+            q = ("(function_declaration name: (identifier) @func) "
+                 "(class_declaration name: (type_identifier) @class) "
+                 "(method_definition name: (property_identifier) @method)")
+        else:
+            return None
+        return Parser(lang), Query(lang, q)
+    except Exception:
+        return None
+
+
+def extract_code_structure(repo_dir: Path, max_files: int = 40) -> dict[str, list[str]]:
+    """用 tree-sitter 提取源码符号（函数/类/方法名），给 LLM 喂真实代码结构。
+
+    解决 architecture_overview 瞎编：让 LLM 看到真实代码组织而非只靠 README。
+    返回 {rel_path: ["def foo", "class Bar", ...]}，最多 max_files 个文件。
+    tree-sitter 不可用或无源码时返回 {}。
+    """
+    result: dict[str, list[str]] = {}
+    for rel in _walk_repo_files(repo_dir):
+        ext = "." + rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+        pq = _ts_parser(ext)
+        if pq is None:
+            continue
+        if is_non_critical(rel):
+            continue
+        try:
+            content = (repo_dir / rel).read_bytes()
+            parser, query = pq
+            tree = parser.parse(content)
+            caps = QueryCursor(query).captures(tree.root_node)
+            items: list[tuple[int, str, str]] = []
+            labels = {"func": "def", "class": "class", "method": "method"}
+            for tag, nodes in caps.items():
+                label = labels.get(tag, tag)
+                for n in nodes:
+                    name = content[n.start_byte:n.end_byte].decode("utf-8", "ignore")
+                    items.append((n.start_byte, label, name))
+            items.sort()
+            symbols = [f"{label} {name}" for _, label, name in items[:30]]
+            if symbols:
+                result[rel] = symbols
+        except Exception:
+            continue
+        if len(result) >= max_files:
+            break
+    return result
