@@ -102,6 +102,18 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_cards_created ON project_cards(created_at DESC)"
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS file_hashes (
+                project_id TEXT NOT NULL,
+                rel_path TEXT NOT NULL,
+                hash TEXT NOT NULL,
+                PRIMARY KEY(project_id, rel_path),
+                FOREIGN KEY(project_id) REFERENCES projects(id)
+            )
+            """
+        )
+
 
 def create_project(
     project_id: str,
@@ -127,10 +139,32 @@ def get_project(project_id: str) -> Optional[dict]:
 
 
 def delete_project(project_id: str) -> None:
-    """删除项目：同时清掉 projects 与 project_cards 两张表的行。"""
+    """删除项目：清掉 projects / project_cards / file_hashes 三张表的行。"""
     with _connect() as conn:
         conn.execute("DELETE FROM project_cards WHERE project_id=?", (project_id,))
+        conn.execute("DELETE FROM file_hashes WHERE project_id=?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+
+
+def get_file_hashes(project_id: str) -> dict[str, str]:
+    """取该项目的文件级指纹 {rel_path: hash}。"""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT rel_path, hash FROM file_hashes WHERE project_id=?", (project_id,)
+        ).fetchall()
+    return {r["rel_path"]: r["hash"] for r in rows}
+
+
+def save_file_hashes(project_id: str, hashes: dict[str, str]) -> None:
+    """全量替换该项目的文件级 hash。"""
+    rows = [(project_id, rel, h) for rel, h in hashes.items()]
+    with _connect() as conn:
+        conn.execute("DELETE FROM file_hashes WHERE project_id=?", (project_id,))
+        if rows:
+            conn.executemany(
+                "INSERT INTO file_hashes(project_id, rel_path, hash) VALUES(?,?,?)",
+                rows,
+            )
 
 
 def update_generated(project_id: str, generated: dict) -> None:

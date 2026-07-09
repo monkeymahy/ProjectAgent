@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -73,6 +74,8 @@ def _http_chat(prompt: str) -> str:
         "temperature": cfg.temperature,
         "max_tokens": cfg.max_tokens,
     }
+    log.info("LLM 请求: model=%s prompt_len=%d", cfg.model, len(prompt))
+    start = time.monotonic()
     try:
         with httpx.Client(timeout=cfg.timeout) as client:
             resp = client.post(
@@ -83,21 +86,23 @@ def _http_chat(prompt: str) -> str:
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as e:
+        log.error("LLM HTTP 错误: %s %s", e.response.status_code, e.response.text[:200])
         raise LLMError(f"LLM HTTP 错误: {e.response.status_code} {e.response.text[:200]}") from e
     except Exception as e:
+        log.error("LLM 调用失败: %s", e)
         raise LLMError(f"LLM 调用失败: {e}") from e
-    try:
-        usage = data.get("usage") or {}
-        if usage:
-            log.info(
-                "LLM token 用量: prompt=%s completion=%s total=%s",
-                usage.get("prompt_tokens"),
-                usage.get("completion_tokens"),
-                usage.get("total_tokens"),
-            )
-    except Exception:
-        pass
-    return data["choices"][0]["message"]["content"]
+    elapsed = time.monotonic() - start
+    content = data["choices"][0]["message"]["content"]
+    usage = data.get("usage") or {}
+    log.info(
+        "LLM 响应: 耗时=%.1fs content_len=%d token=prompt/%s completion/%s total/%s",
+        elapsed,
+        len(content),
+        usage.get("prompt_tokens"),
+        usage.get("completion_tokens"),
+        usage.get("total_tokens"),
+    )
+    return content
 
 
 def call_llm(prompt: str) -> dict[str, Any]:
@@ -148,7 +153,9 @@ def fallback_generate(parsed: dict) -> dict[str, Any]:
 def generate(parsed: dict) -> dict[str, Any]:
     """对外入口：优先调 LLM，失败/未配置则回退。"""
     try:
-        return call_llm(build_prompt(parsed))
+        result = call_llm(build_prompt(parsed))
+        log.info("LLM 生成成功: title=%s", (result.get("title") or "")[:40])
+        return result
     except LLMError as e:
         log.warning("LLM 生成失败，使用回退：%s", e)
         return fallback_generate(parsed)

@@ -362,13 +362,8 @@ def analyze(repo_dir: Path) -> dict:
     }
 
 
-def compute_source_hash(repo_dir: Path) -> str:
-    """对源码目录算整体指纹，用于检测源码是否变化（L0 跳过依据）。
-
-    覆盖范围与 _build_tree 一致：忽略 .git/node_modules 等，跳过隐藏文件。
-    纳入文件相对路径 + 内容，能反映重命名与内容修改。
-    """
-    h = hashlib.sha256()
+def _walk_repo_files(repo_dir: Path) -> list[str]:
+    """遍历仓库文件，返回相对路径（posix）。覆盖范围与 _build_tree 一致。"""
     files: list[str] = []
     for root, dirs, fls in os.walk(repo_dir):
         dirs[:] = sorted(d for d in dirs if d not in IGNORE_DIRS and not d.startswith("."))
@@ -376,9 +371,17 @@ def compute_source_hash(repo_dir: Path) -> str:
             if f.startswith(".") and f not in (".gitignore", ".env.example"):
                 continue
             full = Path(root) / f
-            rel = full.relative_to(repo_dir).as_posix()
-            files.append(rel)
-    for rel in sorted(files):
+            files.append(full.relative_to(repo_dir).as_posix())
+    return files
+
+
+def compute_source_hash(repo_dir: Path) -> str:
+    """对源码目录算整体指纹，用于检测源码是否变化（L0 跳过依据）。
+
+    纳入文件相对路径 + 内容，能反映重命名与内容修改。
+    """
+    h = hashlib.sha256()
+    for rel in sorted(_walk_repo_files(repo_dir)):
         h.update(rel.encode("utf-8"))
         h.update(b"\0")
         try:
@@ -387,3 +390,55 @@ def compute_source_hash(repo_dir: Path) -> str:
             h.update(b"<unreadable>")
         h.update(b"\0")
     return h.hexdigest()
+
+
+def compute_file_hashes(repo_dir: Path) -> dict[str, str]:
+    """文件级指纹：{rel_path: 内容 sha256}。用于 L1 变化检测。"""
+    hashes: dict[str, str] = {}
+    for rel in _walk_repo_files(repo_dir):
+        try:
+            content = (repo_dir / rel).read_bytes()
+        except OSError:
+            content = b"<unreadable>"
+        hashes[rel] = hashlib.sha256(content).hexdigest()
+    return hashes
+
+
+# 非关键目录：其下文件变化不触发 LLM 重生
+_NON_CRITICAL_DIRS = {
+    "tests", "test", "__tests__", "spec", "specs",
+    "docs", "doc", ".github", "examples", "example",
+    "benches", "benchmarks", "fixtures", "mocks",
+}
+
+
+def is_non_critical(rel_path: str) -> bool:
+    """判断文件是否"非关键"：其变化不触发 LLM 重生（L1 跳过依据）。
+
+    非关键 = 测试/文档/CI/许可证等不影响项目核心信息的文件。
+    关键 = 源码 + 依赖清单 + README（展示内容源）。
+    """
+    parts = rel_path.split("/")
+    name = parts[-1]
+    # 依赖清单 -> 关键（影响 tech_stack/dependencies）
+    if name in DEP_FILES:
+        return False
+    # README -> 关键（展示页 description/getting_started 内容源）
+    if name.upper().startswith("README"):
+        return False
+    # 非关键目录下 -> 非关键
+    if any(p in _NON_CRITICAL_DIRS for p in parts[:-1]):
+        return True
+    # 非关键文件名 -> 非关键
+    upper = name.upper()
+    if upper.startswith(("LICENSE", "LICENCE", "COPYING", "CHANGELOG",
+                         "CONTRIBUTING", "CODE_OF_CONDUCT", "AUTHORS", "NOTICE")):
+        return True
+    if name in {".editorconfig", ".gitignore", ".gitattributes", ".git-blame-ignore-revs"}:
+        return True
+    # 非关键扩展 -> 非关键
+    ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in (".md", ".rst", ".txt", ".lock", ".log"):
+        return True
+    # 其余（源码、配置等）-> 关键
+    return False

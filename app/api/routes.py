@@ -201,6 +201,7 @@ border:1px solid #30363d;background:#161b22;color:#c9d1d9;font-family:inherit;}
 <button class="pa-fab" onclick="paDelete()">删除项目</button>
 <script>
 var PA_PID="__PID__";
+var PA_STYPE="__SOURCE_TYPE__";
 function paDelete(){
   if(!confirm('确认删除该项目？此操作不可恢复。'))return;
   fetch('/projects/'+PA_PID,{method:'DELETE'}).then(function(r){
@@ -211,6 +212,24 @@ function paDelete(){
   }).catch(function(){alert('网络错误');});
 }
 function paSync(){
+  if(PA_STYPE==='zip'){
+    var inp=document.createElement('input');inp.type='file';inp.accept='.zip';
+    inp.onchange=function(){
+      if(!inp.files||!inp.files[0])return;
+      if(!confirm('上传新 zip 并重新生成展示页？已生成的展示内容会被覆盖。'))return;
+      var fd=new FormData();fd.append('file',inp.files[0]);
+      fetch('/projects/'+PA_PID+'/sync',{method:'POST',body:fd}).then(function(r){
+        if(r.status===400){alert('请上传 .zip 文件');return;}
+        if(r.status===403){alert('无权同步该项目');return;}
+        if(r.status===401){alert('请先登录');return;}
+        if(r.status===409){alert('项目正在生成中，请稍后再试');return;}
+        if(!r.ok){alert('同步失败');return;}
+        location.href='/projects/'+PA_PID+'/progress';
+      }).catch(function(){alert('网络错误');});
+    };
+    inp.click();
+    return;
+  }
   if(!confirm('从源仓库重新拉取代码并更新展示页？已生成的展示内容会被覆盖。'))return;
   fetch('/projects/'+PA_PID+'/sync',{method:'POST'}).then(function(r){
     if(r.status===403){alert('无权同步该项目');return;}
@@ -263,8 +282,12 @@ document.querySelectorAll('[data-field]').forEach(function(el){
 """
 
 
-def _inject_auth_tools(html: str, project_id: str) -> str:
-    snippet = _AUTH_SNIPPET.replace("__PID__", project_id)
+def _inject_auth_tools(html: str, project_id: str, source_type: str = "") -> str:
+    snippet = (
+        _AUTH_SNIPPET
+        .replace("__PID__", project_id)
+        .replace("__SOURCE_TYPE__", source_type or "")
+    )
     if "</body>" in html:
         return html.replace("</body>", snippet + "</body>", 1)
     return html + snippet
@@ -306,7 +329,7 @@ def view_page(project_id: str, request: Request) -> HTMLResponse:
         except Exception:
             log.warning("老页面升级失败: %s", project_id)
     if _can_modify(_current_user(request), proj):
-        html = _inject_auth_tools(html, project_id)
+        html = _inject_auth_tools(html, project_id, proj.get("source_type") or "")
     return HTMLResponse(html)
 
 
@@ -394,9 +417,14 @@ def remove_project(project_id: str, request: Request) -> JSONResponse:
 
 
 @router.post("/projects/{project_id}/sync")
-def sync_project_api(project_id: str, request: Request) -> JSONResponse:
+async def sync_project_api(
+    project_id: str,
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+) -> JSONResponse:
     """同步更新：重新拉取源码并重生展示页。仅作者或管理员。
 
+    zip 项目需上传新 zip 覆盖旧包；url/local 直接重新拉取。
     源码无变化时（source_hash 命中）由任务层跳过 LLM。生成中拒绝重复触发。
     """
     user = _require_user(request)
@@ -409,6 +437,17 @@ def sync_project_api(project_id: str, request: Request) -> JSONResponse:
         TaskStatus.CLONING.value, TaskStatus.PARSING.value, TaskStatus.GENERATING.value,
     ):
         raise HTTPException(409, "项目正在生成中，请稍后再试")
+
+    if proj.get("source_type") == "zip":
+        if not file or not file.filename or not file.filename.lower().endswith(".zip"):
+            raise HTTPException(400, "zip 项目需上传新的 .zip 压缩包")
+        settings.ensure_dirs()
+        zip_path = settings.uploads_dir / f"{project_id}.zip"
+        with zip_path.open("wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                f.write(chunk)
+        log.info("项目 %s 更新 zip 包: %s", project_id, file.filename)
+
     update_status(project_id, TaskStatus.PENDING, 0, "准备同步更新...")
     _dispatch(project_id, task=sync_project)
     log.info("项目 %s 被 %s 触发同步更新", project_id, user.get("username"))
