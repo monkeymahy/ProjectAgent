@@ -23,6 +23,7 @@ from app.models.models import (
     create_project, get_project, delete_project, update_generated,
     init_db, upsert_user, upsert_card, update_status, TaskStatus,
     list_cards, add_favorite, remove_favorite, get_favorite_status,
+    set_template_version,
 )
 from app.tasks import process_project, sync_project
 
@@ -355,12 +356,13 @@ def view_page(project_id: str, request: Request) -> HTMLResponse:
     if not html_path.exists():
         raise HTTPException(404, "展示页文件缺失")
     html = html_path.read_text(encoding="utf-8")
-    # 老页面缺标记时按存储的 JSON 重新渲染升级：data-field（编辑功能）/ pa-src-links（源码链接）
-    if (("data-field" not in html or "pa-src-links" not in html)
+    # 模板版本落后或缺编辑标记时，按存储的 JSON 重新渲染升级（不调 LLM）
+    from app.llm.renderer import render_page, TEMPLATE_VERSION
+    if ((proj.get("template_version", 1) < TEMPLATE_VERSION
+         or "data-field" not in html or "pa-src-links" not in html)
             and proj.get("generated_json") and proj.get("parsed_json")):
         try:
             import json as _json
-            from app.llm.renderer import render_page
             html = render_page(
                 _json.loads(proj["parsed_json"]), _json.loads(proj["generated_json"]),
                 project_id=project_id,
@@ -368,6 +370,7 @@ def view_page(project_id: str, request: Request) -> HTMLResponse:
                 source_type=proj.get("source_type") or "",
             )
             html_path.write_text(html, encoding="utf-8")
+            set_template_version(project_id, TEMPLATE_VERSION)
         except Exception:
             log.warning("老页面升级失败: %s", project_id)
     html = _inject_favorite_button(html, project_id)
@@ -567,13 +570,14 @@ def list_projects(
     per_page: int = 24,
     lang: Optional[str] = None,
     tag: Optional[str] = None,
+    q: Optional[str] = None,
 ) -> JSONResponse:
-    """项目列表 JSON API：分页 + 语言/标签筛选。登录用户的收藏项目排前面。"""
+    """项目列表 JSON API：分页 + 语言/标签筛选 + 模糊搜索。登录用户的收藏项目排前面。"""
     from app.models.models import list_cards
     user = _current_user(request)
     cards, total = list_cards(
         page=page, per_page=per_page, lang=lang, tag=tag,
-        user_id=user["tforum_user_id"] if user else None,
+        user_id=user["tforum_user_id"] if user else None, q=q,
     )
     total_pages = max(1, (total + per_page - 1) // per_page)
     return JSONResponse({
@@ -616,6 +620,7 @@ def home(
     page: int = 1,
     lang: Optional[str] = None,
     tag: Optional[str] = None,
+    q: Optional[str] = None,
 ) -> HTMLResponse:
     """社区首页 = 最新发布列表页。"""
     from app.models.models import list_cards, distinct_filter_values
@@ -625,7 +630,7 @@ def home(
     user = _current_user(request)
     cards, total = list_cards(
         page=page, per_page=per_page, lang=lang, tag=tag,
-        user_id=user["tforum_user_id"] if user else None,
+        user_id=user["tforum_user_id"] if user else None, q=q,
     )
     total_pages = max(1, (total + per_page - 1) // per_page)
 
@@ -645,6 +650,7 @@ def home(
         page_range=page_range,
         lang=lang,
         tag=tag,
+        q=q,
         langs=distinct_filter_values("lang"),
         tags=distinct_filter_values("tag"),
         current_user=user,

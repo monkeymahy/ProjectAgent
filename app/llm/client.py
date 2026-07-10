@@ -147,7 +147,6 @@ def fallback_generate(parsed: dict) -> dict[str, Any]:
         "highlights": [
             f"主要语言：{', '.join(langs[:5]) or '未识别'}",
             f"技术栈包含：{', '.join(tech[:6]) or '未识别'}",
-            f"License：{parsed.get('license', '未声明')}",
             f"入口文件：{', '.join(parsed.get('entry_hints', [])) or '未识别'}",
         ][:5],
         "tech_stack": tech or langs,

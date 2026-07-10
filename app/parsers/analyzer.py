@@ -7,7 +7,6 @@
   tech_stack: [str],
   dependencies: {ecosystem: [pkg]},
   tree: [path, ...],
-  license: str,
   entry_hints: [str]
 }
 """
@@ -90,23 +89,6 @@ def _find_readme(repo_dir: Path) -> Optional[Path]:
     for p in repo_dir.iterdir():
         if p.is_file() and p.name.lower().startswith("readme"):
             return p
-    return None
-
-
-def _find_license(repo_dir: Path) -> Optional[str]:
-    for name in ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"):
-        p = repo_dir / name
-        if p.is_file():
-            text = p.read_text(encoding="utf-8", errors="ignore")
-            if "MIT" in text[:200]:
-                return "MIT"
-            if "Apache License" in text[:400]:
-                return "Apache-2.0"
-            if "BSD" in text[:200]:
-                return "BSD"
-            if "GNU GENERAL PUBLIC" in text[:400]:
-                return "GPL"
-            return name
     return None
 
 
@@ -353,7 +335,6 @@ def analyze(repo_dir: Path) -> dict:
         if t not in tech_stack:
             tech_stack.append(t)
     entry_hints = _infer_entry_hints(repo_dir, tree)
-    license_name = _find_license(repo_dir)
 
     code_structure = extract_code_structure(repo_dir)
 
@@ -366,7 +347,6 @@ def analyze(repo_dir: Path) -> dict:
         "tech_stack": tech_stack,
         "dependencies": deps,
         "tree": tree,
-        "license": license_name or "未声明",
         "entry_hints": entry_hints,
         "code_structure": code_structure,
     }

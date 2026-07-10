@@ -55,6 +55,18 @@
       padding: 6px 10px; font-size: 13px; cursor: pointer;
     }
     .filters select:disabled { opacity: 0.5; }
+    .search-form { display: inline-flex; gap: 6px; align-items: center; }
+    .search-form input {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 6px 10px; border-radius: 6px; font-size: 13px; width: 220px;
+      font-family: inherit;
+    }
+    .search-form input:focus { outline: none; border-color: #58a6ff; }
+    .search-form button {
+      background: #58a6ff; color: #fff; border: none;
+      padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;
+      font-family: inherit;
+    }
 
     .results-info { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
 
@@ -272,7 +284,7 @@
   <div class="filters">
     <div>
       <label>语言：</label>
-      <select onchange="location.href='?lang='+this.value{% if tag %}+'&tag={{ tag }}'{% endif %}">
+      <select onchange="location.href='?lang='+this.value{% if tag %}+'&tag={{ tag }}'{% endif %}{% if q %}+'&q={{ q }}'{% endif %}">
         <option value="">全部</option>
         {% for l in langs %}
         <option value="{{ l }}" {% if l == lang %}selected{% endif %}>{{ l }}</option>
@@ -281,15 +293,23 @@
     </div>
     <div>
       <label>标签：</label>
-      <select onchange="location.href='?tag='+this.value{% if lang %}+'&lang={{ lang }}'{% endif %}">
+      <select onchange="location.href='?tag='+this.value{% if lang %}+'&lang={{ lang }}'{% endif %}{% if q %}+'&q={{ q }}'{% endif %}">
         <option value="">全部</option>
         {% for t in tags %}
         <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
     </div>
+    <div>
+      <form method="get" action="/" class="search-form">
+        <input name="q" value="{{ q or '' }}" placeholder="搜索标题/架构/亮点…">
+        {% if lang %}<input type="hidden" name="lang" value="{{ lang }}">{% endif %}
+        {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
+        <button type="submit">搜索</button>
+      </form>
+    </div>
     {% if lang or tag %}
-    <a href="/" style="font-size:13px;color:var(--accent);">清除筛选</a>
+    <a href="/{% if q %}?q={{ q }}{% endif %}" style="font-size:13px;color:var(--accent);">清除筛选</a>
     {% endif %}
   </div>
 
@@ -305,7 +325,7 @@
   {% if total_pages > 1 %}
   <div class="pagination">
     {% if page > 1 %}
-      <a href="?page={{ page - 1 }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">上一页</a>
+      <a href="?page={{ page - 1 }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}{% if q %}&q={{ q }}{% endif %}">上一页</a>
     {% else %}
       <span class="disabled">上一页</span>
     {% endif %}
@@ -314,12 +334,12 @@
       {% if p == page %}
         <span class="cur">{{ p }}</span>
       {% else %}
-        <a href="?page={{ p }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">{{ p }}</a>
+        <a href="?page={{ p }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ p }}</a>
       {% endif %}
     {% endfor %}
 
     {% if page < total_pages %}
-      <a href="?page={{ page + 1 }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}">下一页</a>
+      <a href="?page={{ page + 1 }}{% if lang %}&lang={{ lang }}{% endif %}{% if tag %}&tag={{ tag }}{% endif %}{% if q %}&q={{ q }}{% endif %}">下一页</a>
     {% else %}
       <span class="disabled">下一页</span>
     {% endif %}

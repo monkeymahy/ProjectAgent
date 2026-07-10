@@ -8,7 +8,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.core.config import settings
 
-TEMPLATE_VERSION = 1
+TEMPLATE_VERSION = 2
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 _env = Environment(
@@ -86,7 +86,6 @@ def render_page(
         getting_started=gen.get("getting_started", ""),
         tags=gen.get("tags", []),
         # 元数据
-        license=parsed.get("license"),
         entry_hints=parsed.get("entry_hints", []),
         languages=parsed.get("languages", {}),
         dependencies=parsed.get("dependencies", {}),

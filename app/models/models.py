@@ -301,8 +301,10 @@ def list_cards(
     lang: Optional[str] = None,
     tag: Optional[str] = None,
     user_id: Optional[int] = None,
+    q: Optional[str] = None,
 ) -> tuple[list[dict], int]:
-    """分页查询卡片。返回 (cards, total)。登录用户的收藏项目排前面，再按 created_at 倒序。"""
+    """分页查询卡片。返回 (cards, total)。登录用户的收藏项目排前面，再按 created_at 倒序。
+    q 非空时模糊匹配标题/摘要/技术栈/标签/语言/作者及 generated/parsed JSON 全文。"""
     where = ["p.status = ?"]
     params: list = [TaskStatus.DONE.value]
     if lang:
@@ -311,6 +313,14 @@ def list_cards(
     if tag:
         where.append("c.tags_json LIKE ?")
         params.append(f'%"{tag}"%')
+    if q:
+        where.append(
+            "(c.title LIKE ? OR c.summary LIKE ? OR c.tech_stack_json LIKE ? "
+            "OR c.tags_json LIKE ? OR c.primary_lang LIKE ? OR c.owner_name LIKE ? "
+            "OR p.generated_json LIKE ? OR p.parsed_json LIKE ?)"
+        )
+        kw = f"%{q}%"
+        params.extend([kw] * 8)
     clause = " AND ".join(where)
 
     offset = (max(1, page) - 1) * per_page
@@ -419,6 +429,14 @@ def get_favorite_status(tforum_user_id: Optional[int], project_id: str) -> bool:
             (tforum_user_id, project_id),
         ).fetchone()
     return row is not None
+
+
+def set_template_version(project_id: str, version: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE projects SET template_version=? WHERE id=?",
+            (version, project_id),
+        )
 
 
 def distinct_filter_values(field: str) -> list[str]:

@@ -86,8 +86,6 @@ def _build_context_hints(meta: dict) -> str:
         )
     else:
         hints.append("- 未识别明确入口文件，getting_started 给出通用指引即可，不要编造具体命令。")
-    if not meta.get("license") or meta.get("license") == "未声明":
-        hints.append("- License 未声明，不要猜测协议类型。")
     return "\n".join(hints) if hints else "无额外提示。"
 
 
@@ -124,7 +122,6 @@ def _build_meta(parsed_metadata: dict, limits: dict | None = None) -> dict:
         "languages": parsed_metadata.get("languages"),
         "tech_stack": parsed_metadata.get("tech_stack"),
         "dependencies": parsed_metadata.get("dependencies"),
-        "license": parsed_metadata.get("license"),
         "entry_hints": parsed_metadata.get("entry_hints"),
         "tree": parsed_metadata.get("tree", [])[:lim.get("max_tree")],
         "readme": (parsed_metadata.get("readme_raw") or "")[:lim.get("max_readme")],
