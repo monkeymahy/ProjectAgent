@@ -9,14 +9,25 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
-from app.llm.schema import build_prompt, build_incremental_prompt, COMPACT_LIMITS
+from app.llm.schema import build_prompt, build_incremental_prompt, COMPACT_LIMITS, _build_code_structure_text
 
 log = logging.getLogger(__name__)
+
+
+# 分块摘要阈值:code_structure 原始文本超过此字符数时,分块调 LLM 生成摘要再合并
+CODE_STRUCTURE_SUMMARIZE_THRESHOLD = 60000
+CHUNK_CHARS = 30000
+SUMMARIZE_MAX_WORKERS = 8
+
+_SUMMARY_TEMPLATE = """以下是项目部分源码的 tree-sitter 符号清单。请用 2-4 句中文概括这批文件实现的功能与技术职责,基于符号名推断,不编造细节:
+
+{block}"""
 
 
 class LLMError(Exception):
@@ -156,10 +167,59 @@ def _is_context_too_large(e: LLMError) -> bool:
     return any(k in msg for k in ("context", "length", "too long", "maximum", "token limit", "too many"))
 
 
-def generate(parsed: dict) -> dict[str, Any]:
-    """对外入口：全量 prompt 调 LLM；上下文超限时压缩重试；仍失败则回退。"""
+def _summarize_chunk(block: dict, idx: int) -> str:
+    """对单个分块调 LLM 生成摘要,失败降级为本地符号拼接。"""
+    block_text = _build_code_structure_text(block)
+    prompt = _SUMMARY_TEMPLATE.format(block=block_text)
     try:
-        result = call_llm(build_prompt(parsed))
+        content = _http_chat(prompt).strip()
+        log.info("分块摘要[%d] 完成: len=%d", idx, len(content))
+        return content
+    except LLMError as e:
+        log.warning("分块摘要[%d] 失败,降级本地符号: %s", idx, e)
+        return block_text
+
+
+def summarize_code_structure_chunked(code_structure: dict) -> str:
+    """把超大的 code_structure 分块,并发调 LLM 生成摘要,合并成一段文本。"""
+    blocks: list[dict] = []
+    cur: dict[str, list[str]] = {}
+    cur_size = 0
+    for rel, symbols in code_structure.items():
+        line_len = len(rel) + 2 + sum(len(s) + 2 for s in symbols)
+        if cur and cur_size + line_len > CHUNK_CHARS:
+            blocks.append(cur)
+            cur = {}
+            cur_size = 0
+        cur[rel] = symbols
+        cur_size += line_len
+    if cur:
+        blocks.append(cur)
+
+    n = len(blocks)
+    log.info("分块摘要: 共 %d 块", n)
+    start = time.monotonic()
+    summaries: list[str] = [""] * n
+    with ThreadPoolExecutor(max_workers=min(SUMMARIZE_MAX_WORKERS, n)) as pool:
+        futures = {pool.submit(_summarize_chunk, b, i): i for i, b in enumerate(blocks)}
+        for fut in as_completed(futures):
+            summaries[futures[fut]] = fut.result()
+    elapsed = time.monotonic() - start
+    log.info("分块摘要完成: %d 块, 耗时=%.1fs", n, elapsed)
+    return f"（分块摘要，共 {n} 块）\n\n" + "\n\n".join(summaries)
+
+
+def generate(parsed: dict) -> dict[str, Any]:
+    """对外入口:code_structure 超阈值时分块摘要压缩;上下文超限时 COMPACT 截断兜底;仍失败则回退。"""
+    cs = parsed.get("code_structure") or {}
+    cs_text_full = _build_code_structure_text(cs)
+    override = None
+    if len(cs_text_full) > CODE_STRUCTURE_SUMMARIZE_THRESHOLD:
+        log.info("code_structure 超阈值(%d 字符),分块摘要压缩", len(cs_text_full))
+        override = summarize_code_structure_chunked(cs)
+    try:
+        prompt = build_prompt(parsed, code_structure_override=override)
+        result = call_llm(prompt)
         log.info("LLM 生成成功: title=%s", (result.get("title") or "")[:40])
         return result
     except LLMError as e:

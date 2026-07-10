@@ -138,13 +138,21 @@ COMPACT_LIMITS = {
 }
 
 
-def build_prompt(parsed_metadata: dict, limits: dict | None = None) -> str:
+def build_prompt(
+    parsed_metadata: dict,
+    limits: dict | None = None,
+    code_structure_override: str | None = None,
+) -> str:
     import json
     meta = _build_meta(parsed_metadata, limits)
+    if code_structure_override is not None:
+        code_structure = code_structure_override
+    else:
+        code_structure = _build_code_structure_text(parsed_metadata.get("code_structure") or {}, limits)
     return PROMPT_TEMPLATE.format(
         schema=json.dumps(OUTPUT_SCHEMA, ensure_ascii=False, indent=2),
         metadata=json.dumps(meta, ensure_ascii=False, indent=2),
-        code_structure=_build_code_structure_text(parsed_metadata.get("code_structure") or {}, limits),
+        code_structure=code_structure,
         context_hints=_build_context_hints(meta),
     )
 
