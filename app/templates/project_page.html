@@ -133,10 +133,12 @@
       <div class="tags" data-field="tags" data-type="list">
         {% for tag in tags %}<span class="tag">{{ tag }}</span>{% endfor %}
       </div>
+      {% if license or entry_hints %}
       <div style="margin-top:16px;">
         {% if license %}<span class="badge">📄 {{ license }}</span>{% endif %}
         {% if entry_hints %}<span class="badge">▶ {{ entry_hints[0] }}</span>{% endif %}
       </div>
+      {% endif %}
       <div class="pa-src-links" style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
         {% if source_type == 'url' and source and source.startswith('http') %}
         <a class="src-link" href="{{ source }}" target="_blank" rel="noopener">🔗 Git 仓库</a>

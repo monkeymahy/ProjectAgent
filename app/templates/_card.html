@@ -5,6 +5,9 @@
     {% if card.primary_lang %}<span class="card-cover-lang">{{ card.primary_lang }}</span>{% endif %}
   </div>
   <div class="card-body">
+    <button class="fav-btn {{ 'on' if card.is_favorited else '' }}" type="button"
+            data-pid="{{ card.project_id }}" data-fav="{{ 1 if card.is_favorited else 0 }}"
+            onclick="event.preventDefault();event.stopPropagation();toggleFav(this)">{{ '★' if card.is_favorited else '☆' }}</button>
     <h3 class="card-title">{{ card.title }}</h3>
     <p class="card-summary">{{ card.summary }}</p>
     <div class="card-tags">

@@ -114,6 +114,22 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS favorites (
+                tforum_user_id INTEGER NOT NULL,
+                project_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (tforum_user_id, project_id),
+                FOREIGN KEY(tforum_user_id) REFERENCES users(tforum_user_id),
+                FOREIGN KEY(project_id) REFERENCES projects(id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fav_user ON favorites(tforum_user_id)"
+        )
+
 
 def create_project(
     project_id: str,
@@ -143,6 +159,7 @@ def delete_project(project_id: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM project_cards WHERE project_id=?", (project_id,))
         conn.execute("DELETE FROM file_hashes WHERE project_id=?", (project_id,))
+        conn.execute("DELETE FROM favorites WHERE project_id=?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
 
 
@@ -283,8 +300,9 @@ def list_cards(
     per_page: int = 24,
     lang: Optional[str] = None,
     tag: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> tuple[list[dict], int]:
-    """分页查询卡片。返回 (cards, total)。按 created_at 倒序，只含 done 项目。"""
+    """分页查询卡片。返回 (cards, total)。登录用户的收藏项目排前面，再按 created_at 倒序。"""
     where = ["p.status = ?"]
     params: list = [TaskStatus.DONE.value]
     if lang:
@@ -305,13 +323,16 @@ def list_cards(
 
         rows = conn.execute(
             f"""
-            SELECT c.*, p.status FROM project_cards c
+            SELECT c.*, p.status,
+                   CASE WHEN f.project_id IS NOT NULL THEN 1 ELSE 0 END AS is_favorited
+            FROM project_cards c
             JOIN projects p ON p.id = c.project_id
+            LEFT JOIN favorites f ON f.project_id = c.project_id AND f.tforum_user_id = ?
             WHERE {clause}
-            ORDER BY c.created_at DESC
+            ORDER BY is_favorited DESC, c.created_at DESC
             LIMIT ? OFFSET ?
             """,
-            params + [per_page, offset],
+            [user_id] + params + [per_page, offset],
         ).fetchall()
 
     cards = []
@@ -327,6 +348,7 @@ def list_cards(
             "card_color": r["card_color"],
             "owner_name": r["owner_name"],
             "owner_id": r["owner_id"],
+            "is_favorited": bool(r["is_favorited"]),
             "created_at": r["created_at"],
         })
     return cards, total
@@ -369,6 +391,34 @@ def get_user(tforum_user_id: int) -> Optional[dict]:
             "SELECT * FROM users WHERE tforum_user_id=?", (tforum_user_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def add_favorite(tforum_user_id: int, project_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO favorites(tforum_user_id, project_id, created_at) "
+            "VALUES(?,?,?)",
+            (tforum_user_id, project_id, _now()),
+        )
+
+
+def remove_favorite(tforum_user_id: int, project_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM favorites WHERE tforum_user_id=? AND project_id=?",
+            (tforum_user_id, project_id),
+        )
+
+
+def get_favorite_status(tforum_user_id: Optional[int], project_id: str) -> bool:
+    if tforum_user_id is None:
+        return False
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM favorites WHERE tforum_user_id=? AND project_id=?",
+            (tforum_user_id, project_id),
+        ).fetchone()
+    return row is not None
 
 
 def distinct_filter_values(field: str) -> list[str]:

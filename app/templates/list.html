@@ -84,7 +84,7 @@
       position: absolute; bottom: 8px; left: 0; right: 0;
       text-align: center; font-size: 11px; color: rgba(255,255,255,0.9);
     }
-    .card-body { padding: 14px 18px; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .card-body { padding: 14px 18px; flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
     .card-title {
       margin: 0 0 6px; font-size: 17px; color: #fff;
     }
@@ -105,6 +105,17 @@
       margin-top: auto;
     }
     .card-foot .spacer { flex: 1; }
+    .fav-btn {
+      position: absolute; top: 10px; right: 12px; z-index: 2;
+      background: rgba(22,27,34,0.85); border: 1px solid var(--border);
+      color: var(--muted); font-size: 16px; cursor: pointer;
+      width: 30px; height: 30px; border-radius: 8px; padding: 0; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .fav-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .fav-btn.on { color: #f5c518; border-color: rgba(245,197,24,0.4); background: rgba(245,197,24,0.1); }
+    .card-title { padding-right: 38px; }
 
     @media (max-width: 560px) {
       .card-cover { width: 88px; min-width: 88px; }
@@ -391,6 +402,17 @@
 </div>
 
 <script>
+function toggleFav(btn){
+  var pid=btn.getAttribute('data-pid');
+  var on=btn.getAttribute('data-fav')==='1';
+  fetch('/projects/'+pid+'/favorite',{method:on?'DELETE':'POST'}).then(function(r){
+    if(r.status===401){alert('请先登录');location.href='/sso';return;}
+    if(!r.ok){alert('操作失败');return;}
+    btn.setAttribute('data-fav',on?'0':'1');
+    btn.classList.toggle('on',!on);
+    btn.textContent=on?'☆':'★';
+  }).catch(function(){alert('网络错误');});
+}
 let curSrc = 'url';
 let pickedFile = null;
 

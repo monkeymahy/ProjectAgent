@@ -22,6 +22,7 @@ from app.core.session import COOKIE_NAME, sign_session, verify_session
 from app.models.models import (
     create_project, get_project, delete_project, update_generated,
     init_db, upsert_user, upsert_card, update_status, TaskStatus,
+    list_cards, add_favorite, remove_favorite, get_favorite_status,
 )
 from app.tasks import process_project, sync_project
 
@@ -293,6 +294,47 @@ def _inject_auth_tools(html: str, project_id: str, source_type: str = "") -> str
     return html + snippet
 
 
+_FAV_SNIPPET = """
+<style>
+.pa-fav{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;
+  border:1px solid #30363d;background:#1f2428;color:#c9d1d9;font-size:13px;cursor:pointer;
+  font-family:inherit;transition:all 0.15s;}
+.pa-fav:hover{border-color:#58a6ff;color:#58a6ff;}
+.pa-fav.on{color:#f5c518;border-color:rgba(245,197,24,0.4);background:rgba(245,197,24,0.08);}
+</style>
+<script>
+(function(){
+  var pid="__PID__";
+  var links=document.querySelector('.pa-src-links');
+  if(!links)return;
+  var btn=document.createElement('button');
+  btn.className='pa-fav';
+  btn.textContent='☆ 收藏';
+  btn.onclick=function(){
+    var on=btn.classList.contains('on');
+    fetch('/projects/'+pid+'/favorite',{method:on?'DELETE':'POST'}).then(function(r){
+      if(r.status===401){alert('请先登录');location.href='/sso';return;}
+      if(!r.ok){alert('操作失败');return;}
+      btn.classList.toggle('on',!on);
+      btn.textContent=(!on?'★':'☆')+' 收藏';
+    }).catch(function(){alert('网络错误');});
+  };
+  links.appendChild(btn);
+  fetch('/projects/'+pid+'/favorite/status').then(function(r){return r.json();}).then(function(d){
+    if(d&&d.favorited){btn.classList.add('on');btn.textContent='★ 收藏';}
+  }).catch(function(){});
+})();
+</script>
+"""
+
+
+def _inject_favorite_button(html: str, project_id: str) -> str:
+    snippet = _FAV_SNIPPET.replace("__PID__", project_id)
+    if "</body>" in html:
+        return html.replace("</body>", snippet + "</body>", 1)
+    return html + snippet
+
+
 def _can_modify(user: Optional[dict], proj: dict) -> bool:
     """作者本人或管理员可改/可删。"""
     if not user:
@@ -328,6 +370,7 @@ def view_page(project_id: str, request: Request) -> HTMLResponse:
             html_path.write_text(html, encoding="utf-8")
         except Exception:
             log.warning("老页面升级失败: %s", project_id)
+    html = _inject_favorite_button(html, project_id)
     if _can_modify(_current_user(request), proj):
         html = _inject_auth_tools(html, project_id, proj.get("source_type") or "")
     return HTMLResponse(html)
@@ -519,14 +562,19 @@ def progress_page(project_id: str) -> HTMLResponse:
 
 @router.get("/projects")
 def list_projects(
+    request: Request,
     page: int = 1,
     per_page: int = 24,
     lang: Optional[str] = None,
     tag: Optional[str] = None,
 ) -> JSONResponse:
-    """项目列表 JSON API：分页 + 语言/标签筛选。"""
+    """项目列表 JSON API：分页 + 语言/标签筛选。登录用户的收藏项目排前面。"""
     from app.models.models import list_cards
-    cards, total = list_cards(page=page, per_page=per_page, lang=lang, tag=tag)
+    user = _current_user(request)
+    cards, total = list_cards(
+        page=page, per_page=per_page, lang=lang, tag=tag,
+        user_id=user["tforum_user_id"] if user else None,
+    )
     total_pages = max(1, (total + per_page - 1) // per_page)
     return JSONResponse({
         "cards": cards,
@@ -534,6 +582,31 @@ def list_projects(
         "page": page,
         "per_page": per_page,
         "total_pages": total_pages,
+    })
+
+
+@router.post("/projects/{project_id}/favorite")
+def favorite_project(project_id: str, user: dict = Depends(_require_user)) -> JSONResponse:
+    if not get_project(project_id):
+        raise HTTPException(404, "项目不存在")
+    add_favorite(user["tforum_user_id"], project_id)
+    return JSONResponse({"favorited": True})
+
+
+@router.delete("/projects/{project_id}/favorite")
+def unfavorite_project(project_id: str, user: dict = Depends(_require_user)) -> JSONResponse:
+    remove_favorite(user["tforum_user_id"], project_id)
+    return JSONResponse({"favorited": False})
+
+
+@router.get("/projects/{project_id}/favorite/status")
+def favorite_status(project_id: str, request: Request) -> JSONResponse:
+    user = _current_user(request)
+    return JSONResponse({
+        "favorited": get_favorite_status(
+            user["tforum_user_id"] if user else None, project_id
+        ),
+        "logged_in": user is not None,
     })
 
 
@@ -549,7 +622,11 @@ def home(
     from app.llm.renderer import render_template
 
     per_page = 24
-    cards, total = list_cards(page=page, per_page=per_page, lang=lang, tag=tag)
+    user = _current_user(request)
+    cards, total = list_cards(
+        page=page, per_page=per_page, lang=lang, tag=tag,
+        user_id=user["tforum_user_id"] if user else None,
+    )
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     # 分页页码窗口（最多显示 7 个）
@@ -558,7 +635,6 @@ def home(
     start = max(1, end - 6)
     page_range = list(range(start, end + 1))
 
-    user = _current_user(request)
     html = render_template(
         "list.html",
         cards=cards,
