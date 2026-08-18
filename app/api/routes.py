@@ -23,7 +23,7 @@ from app.models.models import (
     create_project, get_project, delete_project, update_generated,
     init_db, upsert_user, upsert_card, update_status, TaskStatus,
     list_cards, add_favorite, remove_favorite, get_favorite_status,
-    set_template_version,
+    set_template_version, set_tforum_token, get_tforum_token,
 )
 from app.tasks import process_project, sync_project
 
@@ -172,6 +172,115 @@ def tools_sync(body: ToolSyncBody, user: dict = Depends(_require_user)) -> JSONR
     except Exception as e:
         log.warning("调用工具库提交接口失败: %s", e)
         raise HTTPException(502, f"无法连接工具库服务: {e}")
+    return JSONResponse(data, status_code=resp.status_code)
+
+
+# ===== SkillLab 技能库同步 =====
+
+class SkillAiFillBody(BaseModel):
+    gitUrl: str
+
+
+class SkillSubmitBody(BaseModel):
+    name: str
+    description: str
+    domain: str
+    skillType: str
+    tags: List[str] = []
+    gitUrl: str
+    blogUrl: str = ""
+    isOriginal: bool = False
+    idempotencyKey: str = ""
+
+
+def _skilllab_headers(user: dict) -> dict:
+    """构造 SkillLab 鉴权头：优先 X-SkillLab-User-Key（本地），否则 tForum token 换 Bearer。"""
+    base = settings.skilllab_base_url.rstrip("/")
+    headers: dict = {"Content-Type": "application/json"}
+    if settings.skilllab_user_key:
+        headers["X-SkillLab-User-Key"] = settings.skilllab_user_key
+        return headers
+    tforum_token = get_tforum_token(user["tforum_user_id"])
+    if not tforum_token:
+        raise HTTPException(
+            400, "缺少 tForum 登录凭证，请从 tForum 站内入口重新进入后再同步 Skill",
+        )
+    try:
+        resp = httpx.post(f"{base}/auth/verify", json={"token": tforum_token}, timeout=15.0)
+        data = resp.json()
+    except Exception as e:
+        log.warning("调用 SkillLab auth/verify 失败: %s", e)
+        raise HTTPException(502, f"无法连接 SkillLab 服务: {e}")
+    if not data.get("ok") or not data.get("skillLabToken"):
+        raise HTTPException(
+            400, f"SkillLab 登录校验失败：{data.get('message') or 'token 无效'}，请从 tForum 重新进入",
+        )
+    headers["Authorization"] = f"Bearer {data['skillLabToken']}"
+    return headers
+
+
+@router.post("/skills/ai-fill")
+def skill_ai_fill(body: SkillAiFillBody, user: dict = Depends(_require_user)) -> JSONResponse:
+    """代理 SkillLab AI 填写：传 Git 地址，返回建议的表单字段。"""
+    if not settings.skilllab_base_url:
+        raise HTTPException(400, "SkillLab 同步未配置（SKILLLAB_BASE_URL 为空）")
+    headers = _skilllab_headers(user)
+    url = f"{settings.skilllab_base_url.rstrip('/')}/skills/ai-fill"
+    try:
+        resp = httpx.post(
+            url, json={"submitMode": "git", "gitUrl": body.gitUrl.strip()},
+            headers=headers, timeout=60.0,
+        )
+        data = resp.json()
+    except Exception as e:
+        log.warning("调用 SkillLab ai-fill 失败: %s", e)
+        raise HTTPException(502, f"无法连接 SkillLab 服务: {e}")
+    return JSONResponse(data, status_code=resp.status_code)
+
+
+@router.post("/skills/submit")
+def skill_submit(body: SkillSubmitBody, user: dict = Depends(_require_user)) -> JSONResponse:
+    """代理 SkillLab 提交：写入审核分支，状态 reviewing。"""
+    if not settings.skilllab_base_url:
+        raise HTTPException(400, "SkillLab 同步未配置（SKILLLAB_BASE_URL 为空）")
+    headers = _skilllab_headers(user)
+    headers["Idempotency-Key"] = body.idempotencyKey or f"skill-submit:{uuid.uuid4()}"
+    payload = {
+        "name": body.name,
+        "description": body.description,
+        "domain": body.domain,
+        "skillType": body.skillType,
+        "tags": body.tags,
+        "submitMode": "git",
+        "gitUrl": body.gitUrl.strip(),
+        "blogUrl": body.blogUrl,
+        "authorName": user["username"],
+        "isOriginal": body.isOriginal,
+        "isUpdate": False,
+    }
+    url = f"{settings.skilllab_base_url.rstrip('/')}/skills/submit"
+    try:
+        resp = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+        data = resp.json()
+    except Exception as e:
+        log.warning("调用 SkillLab submit 失败: %s", e)
+        raise HTTPException(502, f"无法连接 SkillLab 服务: {e}")
+    return JSONResponse(data, status_code=resp.status_code)
+
+
+@router.get("/skills/registry")
+def skill_registry(user: dict = Depends(_require_user)) -> JSONResponse:
+    """代理 SkillLab registry，拿受控标签词表。"""
+    if not settings.skilllab_base_url:
+        raise HTTPException(400, "SkillLab 同步未配置（SKILLLAB_BASE_URL 为空）")
+    headers = _skilllab_headers(user)
+    url = f"{settings.skilllab_base_url.rstrip('/')}/registry"
+    try:
+        resp = httpx.get(url, headers=headers, timeout=15.0)
+        data = resp.json()
+    except Exception as e:
+        log.warning("调用 SkillLab registry 失败: %s", e)
+        raise HTTPException(502, f"无法连接 SkillLab 服务: {e}")
     return JSONResponse(data, status_code=resp.status_code)
 
 
@@ -698,6 +807,7 @@ def home(
         tags=distinct_filter_values("tag"),
         current_user=user,
         toolsync_enabled=bool(settings.toolsync_base_url),
+        skilllab_enabled=bool(settings.skilllab_base_url),
     )
     return HTMLResponse(html)
 
@@ -726,6 +836,7 @@ def sso_entry(token: Optional[str] = None):
 
     info = data["data"]
     user = upsert_user(info)
+    set_tforum_token(user["tforum_user_id"], token)
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
         key=COOKIE_NAME,

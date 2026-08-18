@@ -399,6 +399,15 @@
       <div class="src-tab" data-src="zip" onclick="switchSrc('zip')">上传压缩包</div>
     </div>
 
+    <div class="field">
+      <label>项目类型</label>
+      <select id="pub-type" onchange="switchPubType()">
+        <option value="other">其他</option>
+        <option value="tool">工具</option>
+        <option value="skill">Skill</option>
+      </select>
+    </div>
+
     <div class="field" id="field-url">
       <label>仓库 URL（支持 GitHub / GitLab / Gitee）</label>
       <input type="text" id="input-url" placeholder="https://gitee.com/your/repo.git">
@@ -421,10 +430,18 @@
       </div>
     </div>
     {% if toolsync_enabled %}
-    <div class="field">
+    <div class="field" id="wrap-sync-tool" style="display:none;">
       <div class="check-row">
         <label><input type="checkbox" id="sync-tool"> 同时同步到「开源CAX工具库」</label>
       </div>
+    </div>
+    {% endif %}
+    {% if skilllab_enabled %}
+    <div class="field" id="wrap-sync-skill" style="display:none;">
+      <div class="check-row">
+        <label><input type="checkbox" id="sync-skill"> 同时同步到「SkillLab 技能库」</label>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:-6px 0 14px;">Skill 同步基于 Git 仓库地址，压缩包方式暂不支持</p>
     </div>
     {% endif %}
     {% else %}
@@ -601,6 +618,70 @@
   </div>
 </div>
 
+<!-- 同步 SkillLab Modal -->
+<div class="modal-mask" id="skill-modal" onclick="if(event.target===this)skipSkillSync()">
+  <div class="modal tool-modal" style="position:relative;width:540px;">
+    <div class="modal-head">
+      <div>
+        <h2>同步到「SkillLab 技能库」</h2>
+        <p class="modal-sub">AI 自动生成元数据后可修改，提交后进入人工审核</p>
+      </div>
+      <button class="close" onclick="skipSkillSync()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Git 地址</label>
+        <input type="text" id="s-giturl" readonly style="opacity:0.7;">
+      </div>
+      <div class="field">
+        <label>* 技能名称（字母/数字/中文/连字符/下划线）</label>
+        <input type="text" id="s-name" placeholder="如 demo-skill">
+      </div>
+      <div class="field">
+        <label>* 技能描述</label>
+        <textarea id="s-desc" rows="3"></textarea>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>* 技能域</label>
+          <select id="s-domain">
+            <option value="">-- 请选择 --</option>
+            <option>需求工程</option><option>项目管理</option><option>软件工程</option>
+            <option>质量保证</option><option>版本控制</option><option>文档工程</option>
+            <option>前后处理</option><option>CAD建模技术</option><option>CAE仿真技术</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>* 技能类型</label>
+          <select id="s-stype">
+            <option value="">-- 请选择 --</option>
+            <option>避坑指南</option><option>方法总结</option><option>工具技巧</option>
+            <option>流程模板</option><option>最佳实践</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>标签（最多 5 个，来自技能库受控词表）</label>
+        <div class="check-row" id="s-tags" style="gap:10px;"></div>
+      </div>
+      <div class="field">
+        <label>关联博客地址</label>
+        <input type="text" id="s-blog" placeholder="https://...">
+      </div>
+      <div class="check-row">
+        <label><input type="checkbox" id="s-original"> 原创技能</label>
+      </div>
+      <div class="modal-error" id="skill-error"></div>
+      <div class="tool-result" id="skill-result"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-skill-skip" onclick="skipSkillSync()">跳过，仅发布项目</button>
+      <button class="btn-secondary" id="btn-skill-aifill" onclick="skillAiFill()">AI 重新填写</button>
+      <button class="btn-primary" id="btn-skill-submit" onclick="submitSkillSync()">提交到技能库</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function toggleFav(btn){
   var pid=btn.getAttribute('data-pid');
@@ -623,8 +704,19 @@ function closeModal() {
   document.getElementById('modal').classList.remove('open');
   document.getElementById('modal-error').textContent = '';
   document.getElementById('modal-success').style.display = 'none';
-  const sc = document.getElementById('sync-tool');
-  if (sc) sc.checked = false;
+  ['sync-tool', 'sync-skill'].forEach(id => {
+    const c = document.getElementById(id);
+    if (c) c.checked = false;
+  });
+  const pt = document.getElementById('pub-type');
+  if (pt) { pt.value = 'other'; switchPubType(); }
+}
+function switchPubType() {
+  const t = document.getElementById('pub-type') ? document.getElementById('pub-type').value : 'other';
+  const wt = document.getElementById('wrap-sync-tool');
+  const ws = document.getElementById('wrap-sync-skill');
+  if (wt) wt.style.display = (t === 'tool') ? '' : 'none';
+  if (ws) ws.style.display = (t === 'skill' && curSrc === 'url') ? '' : 'none';
 }
 function switchSrc(src) {
   curSrc = src;
@@ -633,6 +725,7 @@ function switchSrc(src) {
   });
   document.getElementById('field-url').style.display = src === 'url' ? '' : 'none';
   document.getElementById('field-zip').style.display = src === 'zip' ? '' : 'none';
+  switchPubType();
 }
 function onFilePick(e) {
   const f = e.target.files[0];
@@ -688,14 +781,19 @@ async function submitProject() {
     }
     const data = await resp.json();
     if (!resp.ok) { showError(data.detail || '提交失败'); setSubmitting(false); return; }
-    // 提交成功：勾选了同步工具库则先弹表单，否则直接进进度页
+    // 提交成功：按项目类型勾选项弹对应同步表单，否则直接进进度页
     showSuccess();
     setSubmitting(false);
+    pendingProjectId = data.project_id;
+    const pubType = document.getElementById('pub-type') ? document.getElementById('pub-type').value : 'other';
     const syncChk = document.getElementById('sync-tool');
-    if (syncChk && syncChk.checked) {
-      pendingProjectId = data.project_id;
+    const syncSkill = document.getElementById('sync-skill');
+    if (pubType === 'tool' && syncChk && syncChk.checked) {
       setTimeout(() => { closeModal(); openToolModal(); }, 800);
+    } else if (pubType === 'skill' && syncSkill && syncSkill.checked) {
+      setTimeout(() => { closeModal(); openSkillModal(); }, 800);
     } else {
+      pendingProjectId = null;
       setTimeout(() => {
         location.href = '/projects/' + data.project_id + '/progress';
       }, 1200);
@@ -817,6 +915,179 @@ async function submitToolSync() {
     }
   } catch (e) {
     toolError('网络错误: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '重试提交';
+  }
+}
+
+/* ===== 同步到 SkillLab ===== */
+let skillKey = null;
+let skillTags = [];
+
+function uuid4() {
+  return (crypto.randomUUID && crypto.randomUUID()) ||
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+function skillError(msg) {
+  document.getElementById('skill-error').textContent = msg;
+}
+
+function openSkillModal() {
+  document.getElementById('s-giturl').value = document.getElementById('input-url').value.trim();
+  ['s-name', 's-desc', 's-blog'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('s-domain').value = '';
+  document.getElementById('s-stype').value = '';
+  document.getElementById('s-original').checked = false;
+  skillError('');
+  const r = document.getElementById('skill-result');
+  r.className = 'tool-result'; r.textContent = '';
+  const btn = document.getElementById('btn-skill-submit');
+  btn.disabled = false; btn.textContent = '提交到技能库'; btn.onclick = submitSkillSync;
+  const skip = document.getElementById('btn-skill-skip');
+  skip.textContent = '跳过，仅发布项目'; skip.onclick = skipSkillSync;
+  skillKey = 'skill-submit:' + uuid4();  // 重试复用同一 key，重开弹窗换新 key
+  document.getElementById('skill-modal').classList.add('open');
+  fetchSkillRegistry();
+  skillAiFill();
+}
+
+function skipSkillSync() {
+  document.getElementById('skill-modal').classList.remove('open');
+  gotoProgress();
+}
+
+function renderSkillTags(selected) {
+  const box = document.getElementById('s-tags');
+  box.innerHTML = '';
+  skillTags.forEach(t => {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = t;
+    if (selected.includes(t)) cb.checked = true;
+    cb.onchange = () => {
+      if (cb.checked && box.querySelectorAll('input:checked').length > 5) {
+        cb.checked = false;
+        skillError('标签最多 5 个');
+      } else {
+        skillError('');
+      }
+    };
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + t));
+    box.appendChild(label);
+  });
+  if (!skillTags.length) box.innerHTML = '<span style="color:var(--muted);font-size:12px;">词表加载失败，提交时将使用默认标签</span>';
+}
+
+async function fetchSkillRegistry() {
+  try {
+    const resp = await fetch('/skills/registry');
+    const data = await resp.json();
+    if (resp.ok && Array.isArray(data.tags)) {
+      skillTags = data.tags;
+      renderSkillTags([]);
+    }
+  } catch (e) { /* 词表拿不到不阻塞，提交时服务端回退默认 */ }
+}
+
+async function skillAiFill() {
+  const gitUrl = document.getElementById('s-giturl').value.trim();
+  if (!gitUrl) { skillError('缺少 Git 地址'); return; }
+  const btn = document.getElementById('btn-skill-aifill');
+  btn.disabled = true; btn.textContent = 'AI 填写中…';
+  skillError('');
+  try {
+    const resp = await fetch('/skills/ai-fill', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({gitUrl}),
+    });
+    const data = await resp.json();
+    if (resp.ok && data.ok && data.form) {
+      const f = data.form;
+      document.getElementById('s-name').value = f.name || '';
+      document.getElementById('s-desc').value = f.description || '';
+      const setSelect = (id, v) => {
+        if (!v) return;
+        const sel = document.getElementById(id);
+        if (![...sel.options].some(o => o.value === v)) {
+          sel.add(new Option(v, v));
+        }
+        sel.value = v;
+      };
+      setSelect('s-domain', f.domain);
+      setSelect('s-stype', f.skillType);
+      renderSkillTags(f.tags || []);
+    } else {
+      const msg = data.message || data.detail || 'AI 填写失败，可手动填写';
+      skillError(msg + '（可手动填写后提交）');
+      if (!skillTags.length) renderSkillTags([]);
+    }
+  } catch (e) {
+    skillError('AI 填写网络错误: ' + e.message + '（可手动填写后提交）');
+  }
+  btn.disabled = false;
+  btn.textContent = 'AI 重新填写';
+}
+
+async function submitSkillSync() {
+  const val = id => document.getElementById(id).value.trim();
+  const gitUrl = val('s-giturl');
+  const name = val('s-name');
+
+  if (!name) { skillError('请填写技能名称'); return; }
+  if (!/^[\w一-龥-]+$/.test(name)) { skillError('名称只允许字母、数字、中文、连字符和下划线'); return; }
+  if (!val('s-desc')) { skillError('请填写技能描述'); return; }
+  if (!val('s-domain')) { skillError('请选择技能域'); return; }
+  if (!val('s-stype')) { skillError('请选择技能类型'); return; }
+  if (!/^https?:\/\//.test(gitUrl)) { skillError('Git 地址必须以 http(s):// 开头'); return; }
+
+  const payload = {
+    name,
+    description: val('s-desc'),
+    domain: val('s-domain'),
+    skillType: val('s-stype'),
+    tags: Array.from(document.querySelectorAll('#s-tags input:checked')).map(c => c.value),
+    gitUrl,
+    blogUrl: val('s-blog'),
+    isOriginal: document.getElementById('s-original').checked,
+    idempotencyKey: skillKey,
+  };
+
+  const btn = document.getElementById('btn-skill-submit');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  skillError('');
+  try {
+    const resp = await fetch('/skills/submit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    const r = document.getElementById('skill-result');
+    if (resp.ok && data.success) {
+      r.className = 'tool-result ok';
+      r.textContent = (data.message || '已提交') + '，进入人工审核' +
+        (data.webUrl ? '（审核分支: ' + data.branchName + '）' : '');
+      btn.textContent = '前往项目页';
+      btn.onclick = gotoProgress;
+      const skip = document.getElementById('btn-skill-skip');
+      skip.textContent = '关闭'; skip.onclick = gotoProgress;
+      document.getElementById('btn-skill-aifill').disabled = true;
+    } else {
+      r.className = 'tool-result err';
+      r.textContent = data.message || data.detail || '提交失败';
+      btn.disabled = false;
+      btn.textContent = '重试提交';
+    }
+  } catch (e) {
+    skillError('网络错误: ' + e.message);
     btn.disabled = false;
     btn.textContent = '重试提交';
   }

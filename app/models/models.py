@@ -98,6 +98,10 @@ def init_db() -> None:
         card_cols = {r[1] for r in conn.execute("PRAGMA table_info(project_cards)").fetchall()}
         if "owner_id" not in card_cols:
             conn.execute("ALTER TABLE project_cards ADD COLUMN owner_id INTEGER")
+        # 兼容旧库：users 补 tforum_token 列（SkillLab 同步时换取 skillLabToken 用）
+        user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "tforum_token" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN tforum_token TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_cards_created ON project_cards(created_at DESC)"
         )
@@ -401,6 +405,23 @@ def get_user(tforum_user_id: int) -> Optional[dict]:
             "SELECT * FROM users WHERE tforum_user_id=?", (tforum_user_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def set_tforum_token(tforum_user_id: int, token: str) -> None:
+    """SSO 进入时保存 tForum 原始 token，供 SkillLab 换取 skillLabToken。"""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET tforum_token=? WHERE tforum_user_id=?",
+            (token, tforum_user_id),
+        )
+
+
+def get_tforum_token(tforum_user_id: int) -> Optional[str]:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT tforum_token FROM users WHERE tforum_user_id=?", (tforum_user_id,)
+        ).fetchone()
+        return row["tforum_token"] if row else None
 
 
 def add_favorite(tforum_user_id: int, project_id: str) -> None:
