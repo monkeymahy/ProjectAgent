@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     sso_session_ttl: int = int(_raw.get("SSO_SESSION_TTL", 604800))
     projectagent_public_url: str = _raw.get("PROJECTAGENT_PUBLIC_URL", "http://localhost:8765")
 
+    # 开源CAX工具库同步服务（提交工具 API）
+    toolsync_base_url: str = str(_raw.get("TOOLSYNC_BASE_URL", ""))
+
     storage_dir: Path = BASE_DIR / "storage"
     repos_dir: Path = BASE_DIR / "storage" / "repos"
     uploads_dir: Path = BASE_DIR / "storage" / "uploads"

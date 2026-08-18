@@ -132,6 +132,49 @@ async def submit_upload(
     return JSONResponse({"project_id": project_id, "status": "pending"})
 
 
+class ToolSyncBody(BaseModel):
+    """提交工具 API（/api/v1/tools/save）的请求体。"""
+    name: str
+    type: str
+    category: str
+    license: str
+    difficulty: str
+    ai_friendly: bool
+    pricing_model: str
+    official_url: str = ""
+    repo_url: str = ""
+    tags: Optional[List[str]] = None
+    self_developed: bool = False
+    screenshot_url: str = ""
+    platforms: Optional[List[str]] = None
+    description: str = ""
+    scenarios: str = ""
+    usage: str = ""
+    pros: str = ""
+    cons: str = ""
+    ai_agent: str = ""
+    official_docs: str = ""
+    author: str = ""
+
+
+@router.post("/tools/sync")
+def tools_sync(body: ToolSyncBody, user: dict = Depends(_require_user)) -> JSONResponse:
+    """代理转发到开源CAX工具库的提交工具接口，地址由 TOOLSYNC_BASE_URL 配置。"""
+    if not settings.toolsync_base_url:
+        raise HTTPException(400, "工具库同步未配置（TOOLSYNC_BASE_URL 为空）")
+    payload = body.model_dump(exclude_none=True)
+    if not payload.get("author"):
+        payload["author"] = user["username"]
+    url = f"{settings.toolsync_base_url.rstrip('/')}/api/v1/tools/save"
+    try:
+        resp = httpx.post(url, json=payload, timeout=30.0)
+        data = resp.json()
+    except Exception as e:
+        log.warning("调用工具库提交接口失败: %s", e)
+        raise HTTPException(502, f"无法连接工具库服务: {e}")
+    return JSONResponse(data, status_code=resp.status_code)
+
+
 @router.get("/projects/{project_id}/status")
 def get_status(project_id: str) -> JSONResponse:
     proj = get_project(project_id)
@@ -654,6 +697,7 @@ def home(
         langs=distinct_filter_values("lang"),
         tags=distinct_filter_values("tag"),
         current_user=user,
+        toolsync_enabled=bool(settings.toolsync_base_url),
     )
     return HTMLResponse(html)
 

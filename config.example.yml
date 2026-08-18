@@ -32,3 +32,7 @@ SSO_COOKIE_SECRET: "projshow-sso-secret-change-me"
 SSO_SESSION_TTL: 604800
 # ProjectAgent 对外地址（用于在 tForum 配置外部栏目 URL）
 PROJECTAGENT_PUBLIC_URL: "http://localhost:8765"
+
+# ===== 开源CAX工具库同步 =====
+# 工具库服务地址（含端口），发布项目后可勾选同步提交；留空则隐藏该功能
+TOOLSYNC_BASE_URL: "http://localhost:8082"

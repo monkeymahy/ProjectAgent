@@ -220,6 +220,30 @@
       box-sizing: border-box;
     }
     .field input[type=text]:focus { outline: none; border-color: var(--accent); }
+    .field select, .field textarea {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+      font-size: 14px; box-sizing: border-box; font-family: inherit;
+    }
+    .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+    .field textarea { resize: vertical; min-height: 64px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .check-row {
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      font-size: 14px; color: var(--text); margin-bottom: 14px;
+    }
+    .check-row label { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--text); cursor: pointer; }
+    .check-row input[type=checkbox] { accent-color: var(--accent); }
+    .tool-modal .modal-body { max-height: calc(85vh - 130px); overflow-y: auto; padding-right: 4px; }
+    .tool-modal details { margin-bottom: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .tool-modal summary { color: var(--muted); font-size: 13px; cursor: pointer; }
+    .tool-modal details[open] summary { margin-bottom: 10px; }
+    .tool-result {
+      display: none; font-size: 13px; margin: 8px 0; padding: 10px 12px;
+      border-radius: 8px; line-height: 1.6;
+    }
+    .tool-result.ok { display: block; background: rgba(46,160,67,0.12); border: 1px solid rgba(46,160,67,0.4); color: #2ea043; }
+    .tool-result.err { display: block; background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.3); color: #f85149; }
     .file-drop {
       border: 1px dashed var(--border); border-radius: 8px; padding: 22px;
       text-align: center; color: var(--muted); font-size: 13px; cursor: pointer;
@@ -396,6 +420,13 @@
         <span style="color:var(--muted);font-size:12px;">（来自 tForum）</span>
       </div>
     </div>
+    {% if toolsync_enabled %}
+    <div class="field">
+      <div class="check-row">
+        <label><input type="checkbox" id="sync-tool"> 同时同步到「开源CAX工具库」</label>
+      </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="field">
       <div style="font-size:13px;color:#f85149;padding:10px 12px;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.3);border-radius:8px;line-height:1.6;">
@@ -417,6 +448,155 @@
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">取消</button>
       {% if current_user %}<button class="btn-primary" id="btn-submit" onclick="submitProject()">提交</button>{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- 同步工具库 Modal -->
+<datalist id="license-suggestions">
+  <option value="MIT"><option value="Apache-2.0"><option value="GPL-3.0">
+  <option value="BSD-3-Clause"><option value="MPL-2.0">
+  <option value="Commercial"><option value="Proprietary">
+</datalist>
+<div class="modal-mask" id="tool-modal" onclick="if(event.target===this)skipToolSync()">
+  <div class="modal tool-modal" style="position:relative;width:540px;">
+    <div class="modal-head">
+      <div>
+        <h2>同步到「开源CAX工具库」</h2>
+        <p class="modal-sub">信息将提交到工具库并自动推送到 Git 仓库，带 * 为必填</p>
+      </div>
+      <button class="close" onclick="skipToolSync()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>* 工具名称</label>
+        <input type="text" id="t-name" placeholder="如 OpenFOAM">
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>* 工具类型</label>
+          <select id="t-type">
+            <option value="open-source">开源</option>
+            <option value="commercial">商业</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>* 分类</label>
+          <select id="t-category">
+            <option value="fluid">流体</option>
+            <option value="structural">结构</option>
+            <option value="cad">CAD</option>
+            <option value="pre-post">前后处理</option>
+            <option value="acoustics">声学</option>
+            <option value="electromagnetics">电磁</option>
+            <option value="optimization">优化</option>
+            <option value="requirements-functional-modeling">需求/功能建模</option>
+            <option value="ai">AI</option>
+            <option value="knowledge">知识库</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>* 许可证（可自定义）</label>
+          <input type="text" id="t-license" list="license-suggestions" placeholder="MIT / GPL-3.0 / …">
+        </div>
+        <div class="field">
+          <label>* 上手难度</label>
+          <select id="t-difficulty">
+            <option value="low">低</option>
+            <option value="medium">中</option>
+            <option value="high">高</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>* 定价模式</label>
+          <select id="t-pricing">
+            <option value="free">免费</option>
+            <option value="commercial">商业收费</option>
+            <option value="freemium">免费增值</option>
+            <option value="academic-free">学术免费</option>
+            <option value="open-core">开源核心</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>* 适合与 AI 结合</label>
+          <select id="t-ai">
+            <option value="true">是</option>
+            <option value="false">否</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>官网地址（非自研必填）</label>
+          <input type="text" id="t-official-url" placeholder="https://...">
+        </div>
+        <div class="field">
+          <label>代码仓库地址</label>
+          <input type="text" id="t-repo-url" placeholder="https://github.com/xxx/xxx">
+        </div>
+      </div>
+      <div class="check-row">
+        <label><input type="checkbox" id="t-self-dev"> 自研工具</label>
+        <span style="color:var(--muted);font-size:12px;">支持平台：</span>
+        <label><input type="checkbox" class="t-platform" value="windows"> Windows</label>
+        <label><input type="checkbox" class="t-platform" value="linux"> Linux</label>
+        <label><input type="checkbox" class="t-platform" value="macos"> macOS</label>
+      </div>
+      <div class="field">
+        <label>标签（逗号分隔）</label>
+        <input type="text" id="t-tags" placeholder="CFD, 开源">
+      </div>
+      <div class="field">
+        <label>一句话简介</label>
+        <textarea id="t-description" rows="2"></textarea>
+      </div>
+      <details>
+        <summary>更多选填字段（场景 / 用法 / 优缺点 / AI 结合点…）</summary>
+        <div class="field">
+          <label>截图地址</label>
+          <input type="text" id="t-screenshot" placeholder="https://...">
+        </div>
+        <div class="field">
+          <label>适用场景</label>
+          <textarea id="t-scenarios" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label>使用方法（Markdown）</label>
+          <textarea id="t-usage" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <label>优点</label>
+          <textarea id="t-pros" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label>缺点</label>
+          <textarea id="t-cons" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label>AI 结合点</label>
+          <textarea id="t-ai-agent" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label>官方资源（每行一个链接）</label>
+          <textarea id="t-docs" rows="2"></textarea>
+        </div>
+      </details>
+      <div class="field">
+        <label>提交者</label>
+        <div style="font-size:14px;color:var(--text);padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+          <b>{{ current_user.username if current_user else '' }}</b>
+        </div>
+      </div>
+      <div class="modal-error" id="tool-error"></div>
+      <div class="tool-result" id="tool-result"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-tool-skip" onclick="skipToolSync()">跳过，仅发布项目</button>
+      <button class="btn-primary" id="btn-tool-submit" onclick="submitToolSync()">提交到工具库</button>
     </div>
   </div>
 </div>
@@ -443,6 +623,8 @@ function closeModal() {
   document.getElementById('modal').classList.remove('open');
   document.getElementById('modal-error').textContent = '';
   document.getElementById('modal-success').style.display = 'none';
+  const sc = document.getElementById('sync-tool');
+  if (sc) sc.checked = false;
 }
 function switchSrc(src) {
   curSrc = src;
@@ -506,15 +688,137 @@ async function submitProject() {
     }
     const data = await resp.json();
     if (!resp.ok) { showError(data.detail || '提交失败'); setSubmitting(false); return; }
-    // 提交成功：显示成功提示，稍后跳进度页
+    // 提交成功：勾选了同步工具库则先弹表单，否则直接进进度页
     showSuccess();
     setSubmitting(false);
-    setTimeout(() => {
-      location.href = '/projects/' + data.project_id + '/progress';
-    }, 1200);
+    const syncChk = document.getElementById('sync-tool');
+    if (syncChk && syncChk.checked) {
+      pendingProjectId = data.project_id;
+      setTimeout(() => { closeModal(); openToolModal(); }, 800);
+    } else {
+      setTimeout(() => {
+        location.href = '/projects/' + data.project_id + '/progress';
+      }, 1200);
+    }
   } catch (e) {
     showError('网络错误: ' + e.message);
     setSubmitting(false);
+  }
+}
+
+/* ===== 同步到工具库 ===== */
+let pendingProjectId = null;
+
+function guessToolMeta() {
+  // 从发布来源预填：仓库 URL 取末段为工具名；压缩包取文件名
+  if (curSrc === 'url') {
+    const url = document.getElementById('input-url').value.trim();
+    const m = url.replace(/\.git\/?$/, '').split('/').filter(Boolean).pop() || '';
+    return { name: m, repo_url: url };
+  }
+  if (pickedFile) {
+    return { name: pickedFile.name.replace(/\.zip$/i, ''), repo_url: '' };
+  }
+  return { name: '', repo_url: '' };
+}
+
+function openToolModal() {
+  const meta = guessToolMeta();
+  document.getElementById('t-name').value = meta.name;
+  document.getElementById('t-repo-url').value = meta.repo_url;
+  document.getElementById('tool-error').textContent = '';
+  const r = document.getElementById('tool-result');
+  r.className = 'tool-result'; r.textContent = '';
+  document.getElementById('btn-tool-submit').disabled = false;
+  document.getElementById('btn-tool-submit').textContent = '提交到工具库';
+  document.getElementById('tool-modal').classList.add('open');
+}
+
+function gotoProgress() {
+  if (pendingProjectId) location.href = '/projects/' + pendingProjectId + '/progress';
+  else location.href = '/';
+}
+
+function skipToolSync() {
+  document.getElementById('tool-modal').classList.remove('open');
+  gotoProgress();
+}
+
+function toolError(msg) {
+  document.getElementById('tool-error').textContent = msg;
+}
+
+async function submitToolSync() {
+  const val = id => document.getElementById(id).value.trim();
+  const name = val('t-name');
+  const officialUrl = val('t-official-url');
+  const repoUrl = val('t-repo-url');
+  const selfDev = document.getElementById('t-self-dev').checked;
+
+  if (!name) { toolError('请填写工具名称'); return; }
+  if (!val('t-license')) { toolError('请填写许可证'); return; }
+  if (!officialUrl && !(selfDev && repoUrl)) {
+    toolError('官网地址必填；若为自研工具请勾选「自研工具」并填写仓库地址');
+    return;
+  }
+
+  const platforms = Array.from(document.querySelectorAll('.t-platform:checked')).map(c => c.value);
+  const tags = val('t-tags') ? val('t-tags').split(/[,，]/).map(s => s.trim()).filter(Boolean) : [];
+  const payload = {
+    name,
+    type: val('t-type'),
+    category: val('t-category'),
+    license: val('t-license'),
+    difficulty: val('t-difficulty'),
+    ai_friendly: val('t-ai') === 'true',
+    pricing_model: val('t-pricing'),
+    official_url: officialUrl,
+    repo_url: repoUrl,
+    self_developed: selfDev,
+    tags,
+    platforms,
+    screenshot_url: val('t-screenshot'),
+    description: val('t-description'),
+    scenarios: val('t-scenarios'),
+    usage: val('t-usage'),
+    pros: val('t-pros'),
+    cons: val('t-cons'),
+    ai_agent: val('t-ai-agent'),
+    official_docs: val('t-docs'),
+  };
+
+  const btn = document.getElementById('btn-tool-submit');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  toolError('');
+  try {
+    const resp = await fetch('/tools/sync', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (resp.status === 401) { toolError('登录已失效，请重新登录后再同步'); btn.disabled = false; btn.textContent = '提交到工具库'; return; }
+    const data = await resp.json();
+    const r = document.getElementById('tool-result');
+    if (resp.ok && data.code === 0) {
+      r.className = 'tool-result ok';
+      r.textContent = (data.message || '已提交到工具库') + (data.data && data.data.path ? '（' + data.data.path + '）' : '');
+      btn.textContent = '前往项目页';
+      btn.onclick = gotoProgress;
+      document.getElementById('btn-tool-skip').textContent = '关闭';
+      document.getElementById('btn-tool-skip').onclick = gotoProgress;
+    } else {
+      const msg = data.detail || data.message || '提交失败';
+      r.className = 'tool-result err';
+      r.textContent = msg;
+      toolError('');
+      btn.disabled = false;
+      btn.textContent = '重试提交';
+    }
+  } catch (e) {
+    toolError('网络错误: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '重试提交';
   }
 }
 </script>
