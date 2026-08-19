@@ -49,6 +49,9 @@ def _startup() -> None:
     _setup_logging()
     settings.ensure_dirs()
     init_db()
+    # 工具/技能库仓库定时同步（未配置则跳过）
+    from app.library import store
+    store.start_background()
 
 
 app.include_router(router)

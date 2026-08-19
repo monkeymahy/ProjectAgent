@@ -54,10 +54,22 @@ class Settings(BaseSettings):
     # 本地非生产环境可直接用 X-SkillLab-User-Key（如 "admin"）；留空则走 tForum token 换取
     skilllab_user_key: str = str(_raw.get("SKILLLAB_USER_KEY", ""))
 
+    # 工具/技能库展示（git 只读克隆）
+    library_tool_repo_url: str = str(_raw.get("LIBRARY_TOOL_REPO_URL", ""))
+    library_tool_repo_branch: str = str(_raw.get("LIBRARY_TOOL_REPO_BRANCH", ""))
+    library_tool_repo_user: str = str(_raw.get("LIBRARY_TOOL_REPO_USER", ""))
+    library_tool_repo_token: str = str(_raw.get("LIBRARY_TOOL_REPO_TOKEN", ""))
+    library_skill_repo_url: str = str(_raw.get("LIBRARY_SKILL_REPO_URL", ""))
+    library_skill_repo_branch: str = str(_raw.get("LIBRARY_SKILL_REPO_BRANCH", ""))
+    library_skill_repo_user: str = str(_raw.get("LIBRARY_SKILL_REPO_USER", ""))
+    library_skill_repo_token: str = str(_raw.get("LIBRARY_SKILL_REPO_TOKEN", ""))
+    library_sync_interval: int = int(_raw.get("LIBRARY_SYNC_INTERVAL", 300))
+
     storage_dir: Path = BASE_DIR / "storage"
     repos_dir: Path = BASE_DIR / "storage" / "repos"
     uploads_dir: Path = BASE_DIR / "storage" / "uploads"
     pages_dir: Path = BASE_DIR / "storage" / "pages"
+    library_repos_dir: Path = BASE_DIR / "storage" / "library"
 
     llm: LLMConfig = LLMConfig()
 

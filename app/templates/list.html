@@ -282,6 +282,9 @@
     <div class="logo">Project<span>Agent</span></div>
     <nav class="tabs">
       <div class="tab active">最新发布</div>
+      {% if library_enabled %}
+      <a class="tab" href="/library">工具 · 技能库</a>
+      {% endif %}
     </nav>
     <div class="topbar-actions">
       {% if current_user %}

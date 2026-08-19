@@ -460,6 +460,22 @@ def set_template_version(project_id: str, version: int) -> None:
         )
 
 
+def project_url_map() -> dict[str, dict]:
+    """{规范化后的仓库 URL: {project_id, title}}，用于库条目和本地项目的关联。"""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT p.id AS pid, p.source, c.title FROM projects p "
+            "LEFT JOIN project_cards c ON c.project_id = p.id "
+            "WHERE p.source LIKE 'http%'"
+        ).fetchall()
+    out = {}
+    for r in rows:
+        url = (r["source"] or "").strip().lower().removesuffix(".git").rstrip("/")
+        if url:
+            out[url] = {"project_id": r["pid"], "title": r["title"] or r["pid"]}
+    return out
+
+
 def distinct_filter_values(field: str) -> list[str]:
     """获取筛选可选项：lang 或 tag。"""
     if field == "lang":

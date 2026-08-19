@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProjectAgent · 工具技能库</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-bg: rgba(56,139,253,0.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+    }
+    a { color: inherit; text-decoration: none; }
+    header.topbar {
+      border-bottom: 1px solid var(--border);
+      background: #161b22;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-inner {
+      max-width: 1200px; margin: 0 auto; padding: 16px 24px;
+      display: flex; align-items: center; gap: 24px;
+    }
+    .logo { font-size: 20px; font-weight: 700; color: #fff; }
+    .logo span { color: var(--accent); }
+    .tabs { display: flex; gap: 8px; }
+    .tab {
+      padding: 8px 16px; border-radius: 8px; font-size: 14px;
+      color: var(--muted); cursor: pointer;
+    }
+    .tab.active { background: var(--accent-bg); color: var(--accent); }
+    .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .user-chip {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+      color: var(--text); padding: 4px 10px 4px 4px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    }
+    .user-chip .fallback-av {
+      width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+      color: #fff; font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .btn-publish {
+      background: var(--accent); color: #fff; border: none;
+      padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-publish:hover { background: #4f93e6; }
+    .btn-publish .plus { font-size: 18px; line-height: 1; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    .filters { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 20px; }
+    .filters label { font-size: 13px; color: var(--muted); }
+    .filters select {
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 6px 10px; font-size: 13px; cursor: pointer;
+    }
+    .search-form { display: inline-flex; gap: 6px; align-items: center; }
+    .search-form input {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 6px 10px; border-radius: 6px; font-size: 13px; width: 220px;
+      font-family: inherit;
+    }
+    .search-form input:focus { outline: none; border-color: #58a6ff; }
+    .search-form button {
+      background: #58a6ff; color: #fff; border: none;
+      padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;
+      font-family: inherit;
+    }
+    .results-info { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+    .sync-note { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+    .sync-note .err { color: #f85149; }
+
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px; display: flex; flex-direction: column;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .card:hover { transform: translateY(-2px); border-color: var(--accent); }
+    .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .card-title { margin: 0; font-size: 16px; color: #fff; font-weight: 600; }
+    .badge {
+      padding: 2px 8px; border-radius: 999px; font-size: 11px; flex-shrink: 0;
+    }
+    .badge.tool { background: rgba(46,160,67,0.15); color: #2ea043; }
+    .badge.skill { background: rgba(163,113,247,0.15); color: #a373f7; }
+    .badge.cat { background: var(--accent-bg); color: var(--accent); }
+    .card-desc {
+      margin: 0 0 10px; font-size: 13px; color: var(--muted);
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden; min-height: 20px;
+    }
+    .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .tag-sm {
+      background: var(--accent-bg); color: var(--accent);
+      padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    }
+    .card-foot {
+      display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+      font-size: 12px; color: var(--muted);
+      padding-top: 8px; border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+    .card-foot a { color: var(--accent); }
+    .card-foot .local-link {
+      color: #2ea043; background: rgba(46,160,67,0.1);
+      padding: 1px 8px; border-radius: 999px;
+    }
+
+    .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 32px; flex-wrap: wrap; }
+    .pagination a, .pagination span {
+      padding: 8px 14px; border-radius: 8px; font-size: 14px;
+      border: 1px solid var(--border); background: var(--card); color: var(--text);
+    }
+    .pagination a:hover { border-color: var(--accent); color: var(--accent); }
+    .pagination .cur { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .pagination .disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .empty { text-align: center; padding: 80px 24px; color: var(--muted); }
+    .empty h2 { color: #fff; margin-bottom: 8px; }
+    footer { text-align: center; color: var(--muted); font-size: 13px; padding: 32px 0; }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="logo">Project<span>Agent</span></div>
+    <nav class="tabs">
+      <a class="tab" href="/">最新发布</a>
+      <div class="tab active">工具 · 技能库</div>
+    </nav>
+    <div class="topbar-actions">
+      {% if current_user %}
+      <span class="user-chip">
+        {% if current_user.avatar %}
+          <img src="{{ current_user.avatar }}" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;"
+               onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fallback-av',textContent:'{{ current_user.username[:1] }}'}))">
+        {% else %}
+          <span class="fallback-av">{{ current_user.username[:1] }}</span>
+        {% endif %}
+        {{ current_user.username }}
+      </span>
+      {% endif %}
+      <a href="/"><button class="btn-publish"><span class="plus">＋</span> 发布项目</button></a>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  {% if not configured %}
+  <div class="empty">
+    <h2>库展示未启用</h2>
+    <p>管理员尚未配置工具库 / 技能库仓库地址（LIBRARY_TOOL_REPO_URL / LIBRARY_SKILL_REPO_URL）。</p>
+  </div>
+  {% else %}
+
+  <div class="filters">
+    <div>
+      <label>来源：</label>
+      <select onchange="location.href='?source='+this.value{% if q %}+'&q={{ q }}'{% endif %}">
+        <option value="">全部</option>
+        <option value="tool" {% if source == 'tool' %}selected{% endif %}>工具库</option>
+        <option value="skill" {% if source == 'skill' %}selected{% endif %}>技能库</option>
+      </select>
+    </div>
+    <form method="get" action="/library" class="search-form">
+      <input name="q" value="{{ q or '' }}" placeholder="搜索名称/分类/标签/作者…">
+      {% if source %}<input type="hidden" name="source" value="{{ source }}">{% endif %}
+      <button type="submit">搜索</button>
+    </form>
+  </div>
+
+  <div class="results-info">共 {{ total }} 个条目 · 第 {{ page }}/{{ total_pages }} 页</div>
+  {% if stats.error %}<div class="sync-note"><span class="err">同步异常：</span>{{ stats.error }}</div>{% endif %}
+
+  {% if entries %}
+  <div class="grid">
+    {% for e in entries %}
+    <div class="card">
+      <div class="card-head">
+        <h3 class="card-title">{{ e.name }}</h3>
+        {% if e.source == 'tool' %}<span class="badge tool">工具</span>
+        {% else %}<span class="badge skill">Skill</span>{% endif %}
+        {% if e.category %}<span class="badge cat">{{ e.category }}</span>{% endif %}
+      </div>
+      <p class="card-desc">{{ e.description }}</p>
+      {% if e.tags %}
+      <div class="card-tags">
+        {% for t in e.tags[:6] %}<span class="tag-sm">{{ t }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="card-foot">
+        {% if e.author %}<span>作者 {{ e.author }}</span>{% endif %}
+        {% if e.entry_type %}<span>{{ e.entry_type }}</span>{% endif %}
+        {% if e.license %}<span>{{ e.license }}</span>{% endif %}
+        <span class="spacer" style="flex:1;"></span>
+        {% if e.official_url %}<a href="{{ e.official_url }}" target="_blank" rel="noopener">官网</a>{% endif %}
+        {% if e.repo_url %}<a href="{{ e.repo_url }}" target="_blank" rel="noopener">仓库</a>{% endif %}
+        {% if e.project %}
+        <a class="local-link" href="/projects/{{ e.project.project_id }}/page">本站项目 ↗</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}{% if source %}&source={{ source }}{% endif %}{% if q %}&q={{ q }}{% endif %}">上一页</a>
+    {% else %}
+    <span class="disabled">上一页</span>
+    {% endif %}
+    {% for p in page_range %}
+      {% if p == page %}
+      <span class="cur">{{ p }}</span>
+      {% else %}
+      <a href="?page={{ p }}{% if source %}&source={{ source }}{% endif %}{% if q %}&q={{ q }}{% endif %}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}{% if source %}&source={{ source }}{% endif %}{% if q %}&q={{ q }}{% endif %}">下一页</a>
+    {% else %}
+    <span class="disabled">下一页</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty">
+    <h2>暂无条目</h2>
+    <p>两个库仓库里还没有可展示的数据，或搜索无结果。</p>
+  </div>
+  {% endif %}
+  {% endif %}
+
+</div>
+
+<footer>ProjectAgent · 工具/技能数据来自「开源CAX工具库」与 SkillLab，定时从其 git 仓库同步</footer>
+</body>
+</html>
