@@ -16,7 +16,6 @@ _entries: list[dict] = []
 _loaded_at: str = ""
 _last_error: str = ""
 _refreshing = False
-_bg_started = False
 
 
 def is_configured() -> bool:
@@ -98,20 +97,17 @@ def stats() -> dict:
         }
 
 
-def start_background() -> None:
-    """启动后台定时刷新线程（幂等）。"""
-    global _bg_started
-    if _bg_started or not is_configured():
-        return
-    _bg_started = True
+def trigger_refresh() -> None:
+    """后台触发一次刷新（webhook / 本站提交后调用）。
 
-    def loop():
+    若已有刷新在进行中，等它结束后再跑一次，保证触发不丢失。
+    """
+    def run():
         while True:
-            try:
-                refresh()
-            except Exception:
-                log.exception("库数据后台刷新异常")
-            time.sleep(max(60, settings.library_sync_interval))
+            with _lock:
+                if not _refreshing:
+                    break
+            time.sleep(0.2)
+        refresh()
 
-    t = threading.Thread(target=loop, daemon=True, name="library-sync")
-    t.start()
+    threading.Thread(target=run, daemon=True, name="library-refresh").start()

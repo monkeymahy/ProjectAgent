@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # 本地非生产环境可直接用 X-SkillLab-User-Key（如 "admin"）；留空则走 tForum token 换取
     skilllab_user_key: str = str(_raw.get("SKILLLAB_USER_KEY", ""))
 
-    # 工具/技能库展示（git 只读克隆）
+    # 工具/技能库展示（git 只读克隆，GitLab push webhook 触发实时刷新）
     library_tool_repo_url: str = str(_raw.get("LIBRARY_TOOL_REPO_URL", ""))
     library_tool_repo_branch: str = str(_raw.get("LIBRARY_TOOL_REPO_BRANCH", ""))
     library_tool_repo_user: str = str(_raw.get("LIBRARY_TOOL_REPO_USER", ""))
@@ -63,7 +63,8 @@ class Settings(BaseSettings):
     library_skill_repo_branch: str = str(_raw.get("LIBRARY_SKILL_REPO_BRANCH", ""))
     library_skill_repo_user: str = str(_raw.get("LIBRARY_SKILL_REPO_USER", ""))
     library_skill_repo_token: str = str(_raw.get("LIBRARY_SKILL_REPO_TOKEN", ""))
-    library_sync_interval: int = int(_raw.get("LIBRARY_SYNC_INTERVAL", 300))
+    # GitLab webhook 密钥（配置在 GitLab 仓库 Webhook 设置里，与这里一致）
+    library_webhook_secret: str = str(_raw.get("LIBRARY_WEBHOOK_SECRET", ""))
 
     storage_dir: Path = BASE_DIR / "storage"
     repos_dir: Path = BASE_DIR / "storage" / "repos"

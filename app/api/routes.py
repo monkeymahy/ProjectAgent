@@ -175,6 +175,9 @@ def tools_sync(body: ToolSyncBody, user: dict = Depends(_require_user)) -> JSONR
     except Exception as e:
         log.warning("调用工具库提交接口失败: %s", e)
         raise HTTPException(502, f"无法连接工具库服务: {e}")
+    # 提交成功即触发库数据刷新，/library 页面立即可见
+    from app.library import store
+    store.trigger_refresh()
     return JSONResponse(data, status_code=resp.status_code)
 
 
@@ -308,6 +311,9 @@ def skill_submit(body: SkillSubmitBody, user: dict = Depends(_require_user)) -> 
     except Exception as e:
         log.warning("调用 SkillLab submit 失败: %s", e)
         raise HTTPException(502, f"无法连接 SkillLab 服务: {e}")
+    # 提交成功即触发库数据刷新，/library 页面立即可见
+    from app.library import store
+    store.trigger_refresh()
     return JSONResponse(data, status_code=resp.status_code)
 
 
@@ -743,6 +749,68 @@ def edit_project(project_id: str, body: EditField, request: Request) -> JSONResp
     Path(proj["html_path"]).write_text(html, encoding="utf-8")
     log.info("项目 %s 的 %s 被 %s 编辑", project_id, body.field, user.get("username"))
     return JSONResponse({"ok": True})
+
+
+def _normalize_git_url(url: str) -> str:
+    """规范化 git URL 用于匹配：去协议/认证信息/.git 后缀，小写。"""
+    url = (url or "").strip().lower()
+    if "://" in url:
+        url = url.split("://", 1)[1]
+    if "@" in url:  # 去掉 user:token@ 认证前缀
+        url = url.split("@")[-1]
+    url = url.removesuffix(".git").rstrip("/")
+    return url
+
+
+@router.post("/integrations/gitlab-webhook")
+async def gitlab_webhook(request: Request) -> JSONResponse:
+    """GitLab Push Webhook 回调：验证密钥后匹配仓库，触发库数据实时刷新。"""
+    from app.library import store
+
+    if not settings.library_webhook_secret:
+        raise HTTPException(400, "Webhook 未配置（LIBRARY_WEBHOOK_SECRET 为空）")
+    token = request.headers.get("X-Gitlab-Token", "")
+    if token != settings.library_webhook_secret:
+        raise HTTPException(403, "无效的 webhook token")
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": True, "matched": False})
+
+    if body.get("object_kind") != "push":
+        return JSONResponse({"ok": True, "matched": False})
+
+    project = body.get("project") or {}
+    repo_urls = [
+        project.get("git_http_url"), project.get("http_url"),
+        project.get("url"), (body.get("repository") or {}).get("url"),
+        project.get("path_with_namespace"), project.get("path"),
+    ]
+    repo_urls = {_normalize_git_url(u) for u in repo_urls if u}
+
+    targets = {
+        _normalize_git_url(settings.library_tool_repo_url): "tool",
+        _normalize_git_url(settings.library_skill_repo_url): "skill",
+    }
+    matched = None
+    for u in repo_urls:
+        for target_url, name in targets.items():
+            if target_url and (u == target_url or u.endswith(target_url) or target_url.endswith(u)):
+                matched = name
+                break
+        if matched:
+            break
+
+    ref = body.get("ref") or ""
+    branch = ref.removeprefix("refs/heads/")
+    if matched and not store.is_configured():
+        matched = None
+
+    if matched:
+        store.trigger_refresh()
+        log.info("GitLab webhook 触发库刷新: %s (branch=%s)", matched, branch)
+    return JSONResponse({"ok": True, "matched": matched, "branch": branch})
 
 
 @router.get("/library", response_class=HTMLResponse)

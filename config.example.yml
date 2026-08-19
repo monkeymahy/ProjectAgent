@@ -52,4 +52,5 @@ LIBRARY_SKILL_REPO_URL: "https://gitlab.example.com/group/skill-repo.git"
 LIBRARY_SKILL_REPO_BRANCH: ""           # 如数据在 update-skill 等分支则填写
 LIBRARY_SKILL_REPO_USER: ""             # developer 账号用户名
 LIBRARY_SKILL_REPO_TOKEN: ""            # 密码 / Access Token
-LIBRARY_SYNC_INTERVAL: 300              # 轮询间隔（秒）
+# GitLab push webhook 密钥（填到 GitLab 仓库 Webhook 设置的 Secret token，需两边一致）
+LIBRARY_WEBHOOK_SECRET: "change-me-to-a-random-string"
