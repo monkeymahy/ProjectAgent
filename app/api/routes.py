@@ -11,6 +11,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Union, List
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
@@ -24,6 +26,7 @@ from app.models.models import (
     init_db, upsert_user, upsert_card, update_status, TaskStatus,
     list_cards, add_favorite, remove_favorite, get_favorite_status,
     set_template_version, set_tforum_token, get_tforum_token,
+    get_skilllab_token, set_skilllab_token,
 )
 from app.tasks import process_project, sync_project
 
@@ -193,13 +196,9 @@ class SkillSubmitBody(BaseModel):
     idempotencyKey: str = ""
 
 
-def _skilllab_headers(user: dict) -> dict:
-    """构造 SkillLab 鉴权头：优先 X-SkillLab-User-Key（本地），否则 tForum token 换 Bearer。"""
+def _exchange_skilllab_token(user: dict) -> str:
+    """用 tForum token 换 skillLabToken 并缓存（24h 内复用）。"""
     base = settings.skilllab_base_url.rstrip("/")
-    headers: dict = {"Content-Type": "application/json"}
-    if settings.skilllab_user_key:
-        headers["X-SkillLab-User-Key"] = settings.skilllab_user_key
-        return headers
     tforum_token = get_tforum_token(user["tforum_user_id"])
     if not tforum_token:
         raise HTTPException(
@@ -215,8 +214,50 @@ def _skilllab_headers(user: dict) -> dict:
         raise HTTPException(
             400, f"SkillLab 登录校验失败：{data.get('message') or 'token 无效'}，请从 tForum 重新进入",
         )
-    headers["Authorization"] = f"Bearer {data['skillLabToken']}"
-    return headers
+    token = data["skillLabToken"]
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=23)).isoformat()
+    set_skilllab_token(user["tforum_user_id"], token, expires_at)
+    return token
+
+
+def _skilllab_token(user: dict) -> str:
+    """优先用未过期的缓存 token，否则换取新的。"""
+    cached, expires_at = get_skilllab_token(user["tforum_user_id"])
+    if cached and expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at)
+            if exp > datetime.now(timezone.utc) + timedelta(minutes=5):
+                return cached
+        except ValueError:
+            pass
+    return _exchange_skilllab_token(user)
+
+
+def _skilllab_request(
+    method: str, path: str, user: dict,
+    timeout: float = 30.0, headers: dict | None = None, **kw,
+) -> httpx.Response:
+    """SkillLab 请求统一入口：X-SkillLab-User-Key（本地）或 Bearer token。
+
+    token 可能因 SkillLab 重启失效（只存服务进程内），收到 401 时清缓存
+    重新换取并重试一次。
+    """
+    base = settings.skilllab_base_url.rstrip("/")
+    extra = dict(headers or {})
+    if settings.skilllab_user_key:
+        extra.setdefault("X-SkillLab-User-Key", settings.skilllab_user_key)
+        return httpx.request(method, f"{base}{path}", headers=extra, timeout=timeout, **kw)
+
+    resp = None
+    for _ in range(2):
+        token = _skilllab_token(user)
+        h = dict(extra)
+        h["Authorization"] = f"Bearer {token}"
+        resp = httpx.request(method, f"{base}{path}", headers=h, timeout=timeout, **kw)
+        if resp.status_code != 401:
+            return resp
+        set_skilllab_token(user["tforum_user_id"], "", None)
+    return resp
 
 
 @router.post("/skills/ai-fill")
@@ -224,12 +265,10 @@ def skill_ai_fill(body: SkillAiFillBody, user: dict = Depends(_require_user)) ->
     """代理 SkillLab AI 填写：传 Git 地址，返回建议的表单字段。"""
     if not settings.skilllab_base_url:
         raise HTTPException(400, "SkillLab 同步未配置（SKILLLAB_BASE_URL 为空）")
-    headers = _skilllab_headers(user)
-    url = f"{settings.skilllab_base_url.rstrip('/')}/skills/ai-fill"
     try:
-        resp = httpx.post(
-            url, json={"submitMode": "git", "gitUrl": body.gitUrl.strip()},
-            headers=headers, timeout=60.0,
+        resp = _skilllab_request(
+            "POST", "/skills/ai-fill", user, timeout=60.0,
+            json={"submitMode": "git", "gitUrl": body.gitUrl.strip()},
         )
         data = resp.json()
     except Exception as e:
@@ -243,8 +282,10 @@ def skill_submit(body: SkillSubmitBody, user: dict = Depends(_require_user)) -> 
     """代理 SkillLab 提交：写入审核分支，状态 reviewing。"""
     if not settings.skilllab_base_url:
         raise HTTPException(400, "SkillLab 同步未配置（SKILLLAB_BASE_URL 为空）")
-    headers = _skilllab_headers(user)
-    headers["Idempotency-Key"] = body.idempotencyKey or f"skill-submit:{uuid.uuid4()}"
+    headers = {
+        "Idempotency-Key": body.idempotencyKey or f"skill-submit:{uuid.uuid4()}",
+        "Content-Type": "application/json",
+    }
     payload = {
         "name": body.name,
         "description": body.description,
@@ -258,9 +299,11 @@ def skill_submit(body: SkillSubmitBody, user: dict = Depends(_require_user)) -> 
         "isOriginal": body.isOriginal,
         "isUpdate": False,
     }
-    url = f"{settings.skilllab_base_url.rstrip('/')}/skills/submit"
     try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+        resp = _skilllab_request(
+            "POST", "/skills/submit", user, timeout=30.0,
+            headers=headers, json=payload,
+        )
         data = resp.json()
     except Exception as e:
         log.warning("调用 SkillLab submit 失败: %s", e)
@@ -273,10 +316,8 @@ def skill_registry(user: dict = Depends(_require_user)) -> JSONResponse:
     """代理 SkillLab registry，拿受控标签词表。"""
     if not settings.skilllab_base_url:
         raise HTTPException(400, "SkillLab 同步未配置（SKILLLAB_BASE_URL 为空）")
-    headers = _skilllab_headers(user)
-    url = f"{settings.skilllab_base_url.rstrip('/')}/registry"
     try:
-        resp = httpx.get(url, headers=headers, timeout=15.0)
+        resp = _skilllab_request("GET", "/registry", user, timeout=15.0)
         data = resp.json()
     except Exception as e:
         log.warning("调用 SkillLab registry 失败: %s", e)
@@ -869,12 +910,21 @@ def home(
 
 
 @router.get("/sso")
-def sso_entry(token: Optional[str] = None):
+def sso_entry(request: Request, token: Optional[str] = None):
     """tForum 外链跳转入口：服务端校验 token → 建会话 → 回首页。
 
     tForum 管理后台把外部栏目 URL 配成 {PROJECTAGENT_PUBLIC_URL}/sso?token={token}，
     用户点击后 tForum 前端用 window.open 打开最终 URL，本路由拿到 token 去问 tForum 校验。
+
+    本站会话仍有效时，token 缺失/过期/校验服务不可达均无感放行进首页，
+    不再强制用户重新走 tForum 登录。
     """
+    existing = _current_user(request)
+    if existing:
+        home_redirect = RedirectResponse(url="/", status_code=303)
+        # token 有效时仍走完整流程（顺便刷新 tforum_token）；无效则直接放行
+        if not token:
+            return home_redirect
     if not token:
         return _sso_fail_page("缺少登录凭证，请从 tForum 站内入口进入。")
 
@@ -884,9 +934,13 @@ def sso_entry(token: Optional[str] = None):
         data = resp.json()
     except Exception as e:
         log.warning("调用 tForum verifyToken 失败: %s", e)
+        if existing:
+            return home_redirect
         return _sso_fail_page("无法连接登录服务，请稍后重试。")
 
     if data.get("code") != 0 or not data.get("data"):
+        if existing:
+            return home_redirect
         msg = data.get("message") or "token 无效"
         return _sso_fail_page(f"登录校验失败：{msg}")
 

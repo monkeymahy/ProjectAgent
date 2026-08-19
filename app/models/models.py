@@ -102,6 +102,10 @@ def init_db() -> None:
         user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "tforum_token" not in user_cols:
             conn.execute("ALTER TABLE users ADD COLUMN tforum_token TEXT")
+        # 兼容旧库：users 补 skillLabToken 缓存列（24h 有效，避免每次换取）
+        for col in ("skilllab_token", "skilllab_token_expires_at"):
+            if col not in user_cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_cards_created ON project_cards(created_at DESC)"
         )
@@ -422,6 +426,26 @@ def get_tforum_token(tforum_user_id: int) -> Optional[str]:
             "SELECT tforum_token FROM users WHERE tforum_user_id=?", (tforum_user_id,)
         ).fetchone()
         return row["tforum_token"] if row else None
+
+
+def get_skilllab_token(tforum_user_id: int) -> tuple[Optional[str], Optional[str]]:
+    """返回 (skillLabToken, 过期时间 ISO)。"""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT skilllab_token, skilllab_token_expires_at FROM users WHERE tforum_user_id=?",
+            (tforum_user_id,),
+        ).fetchone()
+    if not row:
+        return None, None
+    return row["skilllab_token"], row["skilllab_token_expires_at"]
+
+
+def set_skilllab_token(tforum_user_id: int, token: str, expires_at: Optional[str]) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET skilllab_token=?, skilllab_token_expires_at=? WHERE tforum_user_id=?",
+            (token, expires_at, tforum_user_id),
+        )
 
 
 def add_favorite(tforum_user_id: int, project_id: str) -> None:
