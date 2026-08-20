@@ -48,9 +48,13 @@ class Settings(BaseSettings):
 
     # 开源CAX工具库同步服务（提交工具 API）
     toolsync_base_url: str = str(_raw.get("TOOLSYNC_BASE_URL", ""))
+    # 工具详情页链接模板（与提交 API 地址无关），{name} 为 URL 编码后的工具名
+    toolsync_detail_url: str = str(_raw.get("TOOLSYNC_DETAIL_URL", ""))
 
     # SkillLab 技能库同步服务（AI 填写 + 提交 API base，如 http://10.35.79.157:3001/api/v1/skill-lab）
     skilllab_base_url: str = str(_raw.get("SKILLLAB_BASE_URL", ""))
+    # 技能详情页链接模板（与提交 API 地址无关），{name} 为 URL 编码后的技能名
+    skilllab_detail_url: str = str(_raw.get("SKILLLAB_DETAIL_URL", ""))
     # 本地非生产环境可直接用 X-SkillLab-User-Key（如 "admin"）；留空则走 tForum token 换取
     skilllab_user_key: str = str(_raw.get("SKILLLAB_USER_KEY", ""))
 

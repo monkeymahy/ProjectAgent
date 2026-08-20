@@ -36,10 +36,16 @@ PROJECTAGENT_PUBLIC_URL: "http://localhost:8765"
 # ===== 开源CAX工具库同步 =====
 # 工具库服务地址（含端口），发布项目后可勾选同步提交；留空则隐藏该功能
 TOOLSYNC_BASE_URL: "http://localhost:8082"
+# 工具详情页链接模板（与提交 API 地址无关），{name} 会替换为 URL 编码后的工具名
+# 留空则用 TOOLSYNC_BASE_URL/tool/{name} 推导
+TOOLSYNC_DETAIL_URL: "http://localhost:8082/tool/{name}"
 
 # ===== SkillLab 技能库同步 =====
 # SkillLab API base（含端口），发布 Skill 类型项目时同步；留空则隐藏该功能
 SKILLLAB_BASE_URL: "http://localhost:3001/api/v1/skill-lab"
+# 技能详情页链接模板（与提交 API 地址无关），{name} 会替换为 URL 编码后的技能名
+# 留空则用 SKILLLAB_BASE_URL/skill/{name} 推导
+SKILLLAB_DETAIL_URL: "http://localhost:3001/skill/{name}"
 SKILLLAB_USER_KEY: ""
 
 # ===== 工具/技能库展示（git 只读克隆）=====

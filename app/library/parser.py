@@ -2,7 +2,7 @@
 
 两个仓库的数据格式未完全契约化，这里做容错解析：
 - 优先读 registry.json（支持 list / {"tools": [...]} / {name: {...}} 等形状）
-- 工具库回退解析 category/*.md 的 YAML frontmatter
+- 工具库回退解析分类目录下的 *.md（cad/nx.md 等）的 YAML frontmatter
 - 技能库回退解析 skills/**/LINK.yaml（目录名即技能名）
 """
 from __future__ import annotations
@@ -126,25 +126,26 @@ def _parse_tool(repo_dir: Path) -> list[dict]:
         if norm:
             entries[norm["name"].lower()] = norm
 
-    # category/*.md frontmatter 补充（registry 缺字段或没有 registry 时）
-    cat_dir = repo_dir / "category"
-    if cat_dir.is_dir():
-        for md in cat_dir.glob("*.md"):
-            fm = _read_frontmatter(md)
-            if not fm:
-                continue
-            norm = _normalize("tool", fm, path=f"category/{md.name}")
-            if not norm:
-                continue
-            key = norm["name"].lower()
-            if key in entries:
-                # registry 已有：用 md 的字段补空缺
-                for k, v in norm.items():
-                    if k not in ("extra",) and not entries[key].get(k):
-                        entries[key][k] = v
-                entries[key]["path"] = entries[key].get("path") or norm["path"]
-            else:
-                entries[key] = norm
+    # 分类目录下的 *.md（cad/nx.md、fluid/xx.md、category/xx.md 等），
+    # frontmatter 有 name 才算工具条目；目录名作分类兜底
+    for md in repo_dir.glob("*/*.md"):
+        fm = _read_frontmatter(md)
+        if not fm or not fm.get("name"):
+            continue
+        if not any(k.lower() == "category" for k in fm):
+            fm["category"] = md.parent.name
+        norm = _normalize("tool", fm, path=md.relative_to(repo_dir).as_posix())
+        if not norm:
+            continue
+        key = norm["name"].lower()
+        if key in entries:
+            # registry 已有：用 md 的字段补空缺
+            for k, v in norm.items():
+                if k not in ("extra",) and not entries[key].get(k):
+                    entries[key][k] = v
+            entries[key]["path"] = entries[key].get("path") or norm["path"]
+        else:
+            entries[key] = norm
 
     return list(entries.values())
 

@@ -763,6 +763,22 @@ def _normalize_git_url(url: str) -> str:
     return url
 
 
+def _library_detail_url(source: str, name: str) -> str:
+    """库条目详情页链接：优先用独立配置的详情模板，未配置时按提交服务的主机端口推导。"""
+    from urllib.parse import urlsplit
+    quoted = quote(name, safe="")
+    suffix = "/tool/" if source == "tool" else "/skill/"
+    template = settings.toolsync_detail_url if source == "tool" else settings.skilllab_detail_url
+    base = settings.toolsync_base_url if source == "tool" else settings.skilllab_base_url
+    if template:
+        return template.replace("{name}", quoted)
+    if base:
+        parts = urlsplit(base)
+        if parts.scheme and parts.netloc:
+            return f"{parts.scheme}://{parts.netloc}{suffix}{quoted}"
+    return ""
+
+
 @router.post("/integrations/gitlab-webhook")
 async def gitlab_webhook(request: Request) -> JSONResponse:
     """GitLab Push Webhook 回调：验证密钥后匹配仓库，触发库数据实时刷新。"""
@@ -916,11 +932,7 @@ def home(
     for e in page_entries:
         norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
         e["project"] = url_map.get(norm)
-        # 详情页地址：工具 {TOOLSYNC_BASE_URL}/tool/{name}，技能 {SKILLLAB_BASE_URL}/skill/{name}
-        if e["source"] == "tool" and settings.toolsync_base_url:
-            e["detail_url"] = settings.toolsync_base_url.rstrip("/") + "/tool/" + quote(e["name"], safe="")
-        elif e["source"] == "skill" and settings.skilllab_base_url:
-            e["detail_url"] = settings.skilllab_base_url.rstrip("/") + "/skill/" + quote(e["name"], safe="")
+        e["detail_url"] = _library_detail_url(e["source"], e["name"])
 
     total = proj_total + len(lib_entries)
     total_pages = max(1, (total + per_page - 1) // per_page)
