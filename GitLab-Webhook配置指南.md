@@ -62,6 +62,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 | 现象 | 原因 / 处理 |
 |---|---|
+| **"Url is blocked: Requests to the local network are not allowed"** | GitLab 默认禁止 webhook 请求内网地址。自建 GitLab 让管理员在 **Admin Area -> Settings -> Network -> Outbound requests** 勾选允许(或将本站地址加入 allowlist);gitlab.com 无法放行,需本站有公网地址 |
 | GitLab 显示 403 | Secret token 不一致，逐字符核对两边配置 |
 | 显示 200 但 `/library` 没更新 | 看 `matched` 是否为 null（仓库 URL 不匹配）；或看本站日志中是否有 `GitLab webhook 触发库刷新` 与 git pull 报错 |
 | 本站重启后第一次没数据 | 正常，首次访问 `/library` 会自动拉取 |

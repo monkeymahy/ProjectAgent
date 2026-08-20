@@ -117,6 +117,12 @@
       margin-top: auto;
     }
     .card-foot .spacer { flex: 1; }
+    .card-foot a { color: var(--accent); }
+    .card-foot a.local-link {
+      color: #2ea043; background: rgba(46,160,67,0.1);
+      padding: 1px 8px; border-radius: 999px;
+    }
+    .tag-sm.cat { background: rgba(163,113,247,0.15); color: #a373f7; }
     .fav-btn {
       position: absolute; top: 10px; right: 12px; z-index: 2;
       background: rgba(22,27,34,0.85); border: 1px solid var(--border);
@@ -282,9 +288,6 @@
     <div class="logo">Project<span>Agent</span></div>
     <nav class="tabs">
       <div class="tab active">最新发布</div>
-      {% if library_enabled %}
-      <a class="tab" href="/library">工具 · 技能库</a>
-      {% endif %}
     </nav>
     <div class="topbar-actions">
       {% if current_user %}
@@ -340,12 +343,41 @@
     {% endif %}
   </div>
 
-  <div class="results-info">共 {{ total }} 个项目 · 第 {{ page }}/{{ total_pages }} 页</div>
+  <div class="results-info">共 {{ total }} 条内容 · 第 {{ page }}/{{ total_pages }} 页</div>
+  {% if lib_error %}<div style="color:#f85149;font-size:13px;margin-bottom:14px;">库同步异常：{{ lib_error }}</div>{% endif %}
 
-  {% if cards %}
+  {% if cards or lib_entries %}
   <div class="grid">
     {% for card in cards %}
       {% include "_card.html" %}
+    {% endfor %}
+
+    {% for e in lib_entries %}
+    <div class="card">
+      {% set ecolor = '#3fb950' if e.source == 'tool' else '#a373f7' %}
+      <div class="card-cover" style="background: linear-gradient(135deg, {{ ecolor }} 0%, {{ ecolor }}99 60%, #161b22 100%);">
+        <span class="card-cover-initial">{{ e.name[:1] | upper }}</span>
+        <span class="card-cover-lang">{{ '工具' if e.source == 'tool' else 'Skill' }}</span>
+      </div>
+      <div class="card-body">
+        <h3 class="card-title">{{ e.name }}</h3>
+        <p class="card-summary">{{ e.description }}</p>
+        <div class="card-tags">
+          {% if e.category %}<span class="tag-sm cat">{{ e.category }}</span>{% endif %}
+          {% for t in e.tags[:5] %}<span class="tag-sm">{{ t }}</span>{% endfor %}
+        </div>
+        <div class="card-foot">
+          {% if e.author %}<span>@{{ e.author }}</span>{% endif %}
+          {% if e.license %}<span>{{ e.license }}</span>{% endif %}
+          <span class="spacer"></span>
+          {% if e.official_url %}<a href="{{ e.official_url }}" target="_blank" rel="noopener">官网</a>{% endif %}
+          {% if e.repo_url %}<a href="{{ e.repo_url }}" target="_blank" rel="noopener">仓库</a>{% endif %}
+          {% if e.project %}
+          <a class="local-link" href="/projects/{{ e.project.project_id }}/page">本站项目 ↗</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
     {% endfor %}
   </div>
 
@@ -375,7 +407,7 @@
 
   {% else %}
   <div class="empty">
-    <h2>还没有项目</h2>
+    <h2>还没有内容</h2>
     <p>提交一个 Git 地址或压缩包，让社区看到你的项目。</p>
     <button class="btn-publish" style="margin-top:16px;" onclick="openModal()">
       <span class="plus">＋</span> 发布项目
@@ -538,7 +570,7 @@
       </div>
       <div class="grid2">
         <div class="field">
-          <label>官网地址（非自研必填）</label>
+          <label>官网地址</label>
           <input type="text" id="t-official-url" placeholder="https://...">
         </div>
         <div class="field">
@@ -852,6 +884,14 @@ function closeToolModal() {
 async function ensureProjectPublished(showErr) {
   /** 项目未提交时先提交；返回是否就绪。 */
   if (projectSubmitted) return true;
+  // 发布弹窗里还没填仓库地址时，用工具表单里的仓库地址补上
+  if (curSrc === 'url') {
+    const pubUrl = document.getElementById('input-url');
+    if (pubUrl && !pubUrl.value.trim()) {
+      const repoUrl = document.getElementById('t-repo-url').value.trim();
+      if (repoUrl) pubUrl.value = repoUrl;
+    }
+  }
   const pid = await submitProjectOnly(showErr);
   if (!pid) return false;
   projectSubmitted = true;
@@ -879,10 +919,6 @@ async function submitToolSync() {
 
   if (!name) { toolError('请填写工具名称'); return; }
   if (!val('t-license')) { toolError('请填写许可证'); return; }
-  if (!officialUrl && !(selfDev && repoUrl)) {
-    toolError('官网地址必填；若为自研工具请勾选「自研工具」并填写仓库地址');
-    return;
-  }
   if (!(await ensureProjectPublished(toolError))) return;
 
   const platforms = Array.from(document.querySelectorAll('.t-platform:checked')).map(c => c.value);

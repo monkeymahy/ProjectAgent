@@ -175,7 +175,7 @@ def tools_sync(body: ToolSyncBody, user: dict = Depends(_require_user)) -> JSONR
     except Exception as e:
         log.warning("调用工具库提交接口失败: %s", e)
         raise HTTPException(502, f"无法连接工具库服务: {e}")
-    # 提交成功即触发库数据刷新，/library 页面立即可见
+    # 提交成功即触发库数据刷新，首页立即可见
     from app.library import store
     store.trigger_refresh()
     return JSONResponse(data, status_code=resp.status_code)
@@ -311,7 +311,7 @@ def skill_submit(body: SkillSubmitBody, user: dict = Depends(_require_user)) -> 
     except Exception as e:
         log.warning("调用 SkillLab submit 失败: %s", e)
         raise HTTPException(502, f"无法连接 SkillLab 服务: {e}")
-    # 提交成功即触发库数据刷新，/library 页面立即可见
+    # 提交成功即触发库数据刷新，首页立即可见
     from app.library import store
     store.trigger_refresh()
     return JSONResponse(data, status_code=resp.status_code)
@@ -813,61 +813,6 @@ async def gitlab_webhook(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "matched": matched, "branch": branch})
 
 
-@router.get("/library", response_class=HTMLResponse)
-def library_page(
-    request: Request,
-    source: str = "",
-    q: Optional[str] = None,
-    page: int = 1,
-) -> HTMLResponse:
-    """工具/技能库展示页：数据来自外部两个库仓库的只读克隆。"""
-    from app.library import store
-    from app.models.models import project_url_map
-    from app.llm.renderer import render_template
-
-    user = _current_user(request)
-    configured = store.is_configured()
-
-    entries: list[dict] = []
-    stats = {"count": 0, "loaded_at": "", "error": ""}
-    if configured:
-        # 首次访问懒加载（后台线程通常已先行刷新）
-        if not store.stats().get("loaded_at"):
-            store.refresh()
-        stats = store.stats()
-        entries = store.get_entries(source=source, q=q or "")
-
-    url_map = project_url_map()
-    for e in entries:
-        norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
-        e["project"] = url_map.get(norm)
-
-    per_page = 24
-    total = len(entries)
-    total_pages = max(1, (total + per_page - 1) // per_page)
-    page = max(1, min(page, total_pages))
-    page_entries = entries[(page - 1) * per_page: page * per_page]
-
-    start = max(1, page - 3)
-    end = min(total_pages, start + 6)
-    start = max(1, end - 6)
-
-    html = render_template(
-        "library.html",
-        entries=page_entries,
-        total=total,
-        page=page,
-        total_pages=total_pages,
-        page_range=list(range(start, end + 1)),
-        source=source if source in ("tool", "skill") else "",
-        q=q or "",
-        stats=stats,
-        configured=configured,
-        current_user=user,
-    )
-    return HTMLResponse(html)
-
-
 @router.get("/projects/{project_id}/progress", response_class=HTMLResponse)
 def progress_page(project_id: str) -> HTMLResponse:
     """生成进度页：SSE 监听状态，done 后跳展示页。"""
@@ -938,16 +883,40 @@ def home(
     tag: Optional[str] = None,
     q: Optional[str] = None,
 ) -> HTMLResponse:
-    """社区首页 = 最新发布列表页。"""
-    from app.models.models import list_cards, distinct_filter_values
+    """社区首页 = 最新发布列表页（项目 + 工具/技能库条目混排）。"""
+    from app.models.models import list_cards, distinct_filter_values, project_url_map
+    from app.library import store as library_store
     from app.llm.renderer import render_template
 
     per_page = 24
     user = _current_user(request)
-    cards, total = list_cards(
+    cards, proj_total = list_cards(
         page=page, per_page=per_page, lang=lang, tag=tag,
         user_id=user["tforum_user_id"] if user else None, q=q,
     )
+
+    # 工具/技能库条目并入信息流；语言/标签筛选只针对项目，激活时不混入
+    lib_entries: list[dict] = []
+    lib_error = ""
+    if library_store.is_configured() and not (lang or tag):
+        if not library_store.stats().get("loaded_at"):
+            library_store.refresh()
+        lib_error = library_store.stats().get("error") or ""
+        lib_entries = library_store.get_entries(source="", q=q or "")
+
+    # 统一分页：项目在前（按发布时间），库条目随后
+    start_idx = (page - 1) * per_page
+    end_idx = page * per_page
+    lib_from = max(0, start_idx - proj_total)
+    lib_to = max(0, end_idx - proj_total)
+    page_entries = lib_entries[lib_from:lib_to]
+
+    url_map = project_url_map()
+    for e in page_entries:
+        norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
+        e["project"] = url_map.get(norm)
+
+    total = proj_total + len(lib_entries)
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     # 分页页码窗口（最多显示 7 个）
@@ -959,6 +928,8 @@ def home(
     html = render_template(
         "list.html",
         cards=cards,
+        lib_entries=page_entries,
+        lib_error=lib_error,
         total=total,
         page=page,
         per_page=per_page,
@@ -972,7 +943,6 @@ def home(
         current_user=user,
         toolsync_enabled=bool(settings.toolsync_base_url),
         skilllab_enabled=bool(settings.skilllab_base_url),
-        library_enabled=bool(settings.library_tool_repo_url or settings.library_skill_repo_url),
     )
     return HTMLResponse(html)
 
