@@ -1,4 +1,4 @@
-"""库数据内存缓存 + 后台定时刷新。"""
+"""库数据内存缓存，由 webhook / 提交后主动触发刷新。"""
 from __future__ import annotations
 
 import logging
@@ -54,7 +54,9 @@ def refresh() -> str:
         for source, name, url, branch, user, token in _configured_repos():
             try:
                 path = git_sync.ensure_repo(name, url, branch, user=user, token=token)
-                all_entries.extend(parser.parse_repo(source, path))
+                entries = parser.parse_repo(source, path)
+                log.info("库仓库 %s 解析到 %d 条", name, len(entries))
+                all_entries.extend(entries)
             except Exception as e:
                 log.warning("库仓库 %s 同步失败: %s", name, e)
                 errors.append(f"{name}: {e}")

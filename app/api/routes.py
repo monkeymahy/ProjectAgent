@@ -10,6 +10,7 @@ import zipfile
 import logging
 from pathlib import Path
 from typing import Optional, Union, List
+from urllib.parse import quote
 
 from datetime import datetime, timedelta, timezone
 
@@ -915,6 +916,11 @@ def home(
     for e in page_entries:
         norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
         e["project"] = url_map.get(norm)
+        # 详情页地址：工具 {TOOLSYNC_BASE_URL}/tool/{name}，技能 {SKILLLAB_BASE_URL}/skill/{name}
+        if e["source"] == "tool" and settings.toolsync_base_url:
+            e["detail_url"] = settings.toolsync_base_url.rstrip("/") + "/tool/" + quote(e["name"], safe="")
+        elif e["source"] == "skill" and settings.skilllab_base_url:
+            e["detail_url"] = settings.skilllab_base_url.rstrip("/") + "/skill/" + quote(e["name"], safe="")
 
     total = proj_total + len(lib_entries)
     total_pages = max(1, (total + per_page - 1) // per_page)

@@ -353,7 +353,7 @@
     {% endfor %}
 
     {% for e in lib_entries %}
-    <div class="card">
+    <div class="card"{% if e.detail_url %} style="cursor:pointer" onclick="location.href='{{ e.detail_url }}'"{% endif %}>
       {% set ecolor = '#3fb950' if e.source == 'tool' else '#a373f7' %}
       <div class="card-cover" style="background: linear-gradient(135deg, {{ ecolor }} 0%, {{ ecolor }}99 60%, #161b22 100%);">
         <span class="card-cover-initial">{{ e.name[:1] | upper }}</span>
@@ -370,10 +370,10 @@
           {% if e.author %}<span>@{{ e.author }}</span>{% endif %}
           {% if e.license %}<span>{{ e.license }}</span>{% endif %}
           <span class="spacer"></span>
-          {% if e.official_url %}<a href="{{ e.official_url }}" target="_blank" rel="noopener">官网</a>{% endif %}
-          {% if e.repo_url %}<a href="{{ e.repo_url }}" target="_blank" rel="noopener">仓库</a>{% endif %}
+          {% if e.official_url %}<a href="{{ e.official_url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">官网</a>{% endif %}
+          {% if e.repo_url %}<a href="{{ e.repo_url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">仓库</a>{% endif %}
           {% if e.project %}
-          <a class="local-link" href="/projects/{{ e.project.project_id }}/page">本站项目 ↗</a>
+          <a class="local-link" href="/projects/{{ e.project.project_id }}/page" onclick="event.stopPropagation()">本站项目 ↗</a>
           {% endif %}
         </div>
       </div>
