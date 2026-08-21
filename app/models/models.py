@@ -347,7 +347,7 @@ def list_cards(
             JOIN projects p ON p.id = c.project_id
             LEFT JOIN favorites f ON f.project_id = c.project_id AND f.tforum_user_id = ?
             WHERE {clause}
-            ORDER BY is_favorited DESC, c.created_at DESC
+            ORDER BY c.created_at DESC
             LIMIT ? OFFSET ?
             """,
             [user_id] + params + [per_page, offset],

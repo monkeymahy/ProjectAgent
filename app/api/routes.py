@@ -916,37 +916,47 @@ def home(
 
     per_page = 24
     user = _current_user(request)
-    cards, proj_total = list_cards(
-        page=page, per_page=per_page, lang=lang, tag=tag,
-        user_id=user["tforum_user_id"] if user else None, q=q,
-    )
 
-    # 工具/技能库条目并入信息流；语言/标签筛选只针对项目，激活时不混入
-    lib_entries: list[dict] = []
-    lib_error = ""
-    if library_store.is_configured() and not (lang or tag):
+    # 库条目并入信息流时，项目也全量取出，按时间合并后统一分页；
+    # 语言/标签筛选只针对项目，或库未配置时走数据库分页
+    merge_lib = library_store.is_configured() and not (lang or tag)
+    if merge_lib:
+        cards, proj_total = list_cards(
+            page=1, per_page=10000, lang=None, tag=None,
+            user_id=user["tforum_user_id"] if user else None, q=q,
+        )
         if not library_store.stats().get("loaded_at"):
             library_store.refresh()
         lib_error = library_store.stats().get("error") or ""
         lib_entries = library_store.get_entries(source="", q=q or "")
 
-    # 统一分页：项目在前（按发布时间），库条目随后
-    start_idx = (page - 1) * per_page
-    end_idx = page * per_page
-    lib_from = max(0, start_idx - proj_total)
-    lib_to = max(0, end_idx - proj_total)
-    page_entries = lib_entries[lib_from:lib_to]
+        url_map = project_url_map()
+        tforum_token = get_tforum_token(user["tforum_user_id"]) if user else ""
+        for e in lib_entries:
+            norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
+            e["project"] = url_map.get(norm)
+            e["detail_url"] = _library_detail_url(e["source"], e["name"], token=tforum_token)
 
-    url_map = project_url_map()
-    # Skill 详情页需 tForum token 鉴权，取当前用户的 token 拼到链接上
-    tforum_token = get_tforum_token(user["tforum_user_id"]) if user else ""
-    for e in page_entries:
-        norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
-        e["project"] = url_map.get(norm)
-        e["detail_url"] = _library_detail_url(e["source"], e["name"], token=tforum_token)
+        # 项目按 created_at、库条目按 git 提交时间，统一倒序
+        items = [("proj", c, c.get("created_at") or "") for c in cards]
+        items += [("lib", e, e.get("committed_at") or "") for e in lib_entries]
+        items.sort(key=lambda x: x[2], reverse=True)
+        total = len(items)
 
-    total = proj_total + len(lib_entries)
-    total_pages = max(1, (total + per_page - 1) // per_page)
+        page = max(1, page)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        page_items = items[(page - 1) * per_page: page * per_page]
+        feed = [{"kind": kind, **c} for kind, c, _ in page_items]
+    else:
+        cards, proj_total = list_cards(
+            page=page, per_page=per_page, lang=lang, tag=tag,
+            user_id=user["tforum_user_id"] if user else None, q=q,
+        )
+        feed = [{"kind": "proj", **c} for c in cards]
+        lib_error = ""
+        total = proj_total
+        total_pages = max(1, (total + per_page - 1) // per_page)
 
     # 分页页码窗口（最多显示 7 个）
     start = max(1, page - 3)
@@ -956,8 +966,7 @@ def home(
 
     html = render_template(
         "list.html",
-        cards=cards,
-        lib_entries=page_entries,
+        feed=feed,
         lib_error=lib_error,
         total=total,
         page=page,

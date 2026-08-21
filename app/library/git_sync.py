@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -48,6 +49,24 @@ def _run(args: list[str], cwd: Path | None = None, label: str = "") -> str:
 
 def _git(args: list[str], cwd: Path | None = None) -> str:
     return _run(["git", "-c", "credential.helper=", *args], cwd=cwd, label=args[0])
+
+
+def last_commit_times(repo_dir: Path) -> dict[str, str]:
+    """一次 git log 拿到每个文件的最后提交时间（ISO 8601，UTC）。
+
+    返回 {相对路径(正斜杠): 提交时间}。git log 从新到旧输出，文件首次出现即最新提交。
+    """
+    out = _git(["log", "--format=@@@%cI", "--name-only", "--no-renames"], cwd=repo_dir)
+    times: dict[str, str] = {}
+    cur = ""
+    for line in out.splitlines():
+        if line.startswith("@@@"):
+            cur = line[3:].strip()
+        elif line.strip():
+            p = line.strip().replace("\\", "/")
+            if p not in times:
+                times[p] = cur
+    return times
 
 
 def ensure_repo(

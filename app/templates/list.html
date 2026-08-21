@@ -346,13 +346,14 @@
   <div class="results-info">共 {{ total }} 条内容 · 第 {{ page }}/{{ total_pages }} 页</div>
   {% if lib_error %}<div style="color:#f85149;font-size:13px;margin-bottom:14px;">库同步异常：{{ lib_error }}</div>{% endif %}
 
-  {% if cards or lib_entries %}
+  {% if feed %}
   <div class="grid">
-    {% for card in cards %}
-      {% include "_card.html" %}
-    {% endfor %}
-
-    {% for e in lib_entries %}
+    {% for item in feed %}
+      {% if item.kind == 'proj' %}
+        {% set card = item %}
+        {% include "_card.html" %}
+      {% else %}
+        {% set e = item %}
     <div class="card"{% if e.detail_url %} style="cursor:pointer" onclick="location.href='{{ e.detail_url }}'"{% endif %}>
       {% set ecolor = '#3fb950' if e.source == 'tool' else '#a373f7' %}
       <div class="card-cover" style="background: linear-gradient(135deg, {{ ecolor }} 0%, {{ ecolor }}99 60%, #161b22 100%);">
@@ -370,6 +371,7 @@
           {% if e.author %}<span>@{{ e.author }}</span>{% endif %}
           {% if e.license %}<span>{{ e.license }}</span>{% endif %}
           <span class="spacer"></span>
+          {% if e.committed_at %}<span>{{ e.committed_at[:10] }}</span>{% endif %}
           {% if e.official_url %}<a href="{{ e.official_url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">官网</a>{% endif %}
           {% if e.repo_url %}<a href="{{ e.repo_url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">仓库</a>{% endif %}
           {% if e.project %}
@@ -378,6 +380,7 @@
         </div>
       </div>
     </div>
+      {% endif %}
     {% endfor %}
   </div>
 

@@ -6,6 +6,11 @@ LLM_MODEL: "ark-code-latest"                           # 或 gpt-4o-mini / deeps
 LLM_TEMPERATURE: 0.4
 LLM_MAX_TOKENS: 2000
 LLM_TIMEOUT: 60
+# 若使用推理类模型（如 intern-latest / Intern-S2 / DeepSeek-R1 等带思维链的模型），
+# 思维链会消耗大量 token 和时间，请调大：
+#   LLM_MAX_TOKENS: 16384
+#   LLM_TIMEOUT: 300
+# 否则会因 60s 读超时被静默降级为占位内容（fallback_generate）。
 
 # ===== 后端基础设施 =====
 REDIS_URL: "redis://127.0.0.1:6379/0"

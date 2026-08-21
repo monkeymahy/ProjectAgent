@@ -31,9 +31,15 @@ SKILL_FIELDS = (
 
 
 def parse_repo(source: str, repo_dir: Path) -> list[dict]:
+    # 一次 git log 拿到每个文件最后提交时间，条目按其数据文件的提交时间排序
+    from app.library.git_sync import last_commit_times
+    times = last_commit_times(repo_dir)
     if source == "tool":
-        return _parse_tool(repo_dir)
-    return _parse_skill(repo_dir)
+        entries = _parse_tool(repo_dir, times)
+    else:
+        entries = _parse_skill(repo_dir, times)
+    entries.sort(key=lambda e: e.get("committed_at") or "", reverse=True)
+    return entries
 
 
 def _read_json(path: Path):
@@ -114,16 +120,19 @@ def _normalize(source: str, entry: dict, path: str = "") -> Optional[dict]:
         "ai_friendly": fields.get("ai_friendly", ""),
         "pricing_model": fields.get("pricing_model", ""),
         "path": path or fields.get("path", ""),
+        "committed_at": "",
         "extra": extra,
     }
 
 
-def _parse_tool(repo_dir: Path) -> list[dict]:
+def _parse_tool(repo_dir: Path, times: dict[str, str]) -> list[dict]:
     entries: dict[str, dict] = {}
+    registry_time = times.get("registry.json", "")
 
     for item in _json_items(_read_json(repo_dir / "registry.json")):
         norm = _normalize("tool", item)
         if norm:
+            norm["committed_at"] = registry_time
             entries[norm["name"].lower()] = norm
 
     # 分类目录下的 *.md（cad/nx.md、fluid/xx.md、category/xx.md 等），
@@ -137,25 +146,32 @@ def _parse_tool(repo_dir: Path) -> list[dict]:
         norm = _normalize("tool", fm, path=md.relative_to(repo_dir).as_posix())
         if not norm:
             continue
+        md_time = times.get(md.relative_to(repo_dir).as_posix(), "")
+        norm["committed_at"] = md_time
         key = norm["name"].lower()
         if key in entries:
-            # registry 已有：用 md 的字段补空缺
+            # registry 已有：用 md 的字段补空缺，时间取两者较新
             for k, v in norm.items():
                 if k not in ("extra",) and not entries[key].get(k):
                     entries[key][k] = v
             entries[key]["path"] = entries[key].get("path") or norm["path"]
+            entries[key]["committed_at"] = max(
+                entries[key].get("committed_at") or "", md_time,
+            )
         else:
             entries[key] = norm
 
     return list(entries.values())
 
 
-def _parse_skill(repo_dir: Path) -> list[dict]:
+def _parse_skill(repo_dir: Path, times: dict[str, str]) -> list[dict]:
     entries: dict[str, dict] = {}
+    registry_time = times.get("registry.json", "")
 
     for item in _json_items(_read_json(repo_dir / "registry.json")):
         norm = _normalize("skill", item)
         if norm:
+            norm["committed_at"] = registry_time
             entries[norm["name"].lower()] = norm
 
     if not entries:
@@ -172,6 +188,7 @@ def _parse_skill(repo_dir: Path) -> list[dict]:
                 data.setdefault("name", link.parent.name)
                 norm = _normalize("skill", data, path=rel)
                 if norm:
+                    norm["committed_at"] = times.get(rel, "")
                     entries[norm["name"].lower()] = norm
 
     return list(entries.values())
