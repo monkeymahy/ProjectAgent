@@ -763,20 +763,29 @@ def _normalize_git_url(url: str) -> str:
     return url
 
 
-def _library_detail_url(source: str, name: str) -> str:
-    """库条目详情页链接：优先用独立配置的详情模板，未配置时按提交服务的主机端口推导。"""
+def _library_detail_url(source: str, name: str, token: str = "") -> str:
+    """库条目详情页链接：优先用独立配置的详情模板，未配置时按提交服务的主机端口推导。
+
+    Skill 详情页需要鉴权，链接后追加 ?token={tForum token}。
+    """
     from urllib.parse import urlsplit
     quoted = quote(name, safe="")
     suffix = "/tool/" if source == "tool" else "/skill/"
     template = settings.toolsync_detail_url if source == "tool" else settings.skilllab_detail_url
     base = settings.toolsync_base_url if source == "tool" else settings.skilllab_base_url
     if template:
-        return template.replace("{name}", quoted)
-    if base:
+        url = template.replace("{name}", quoted)
+    elif base:
         parts = urlsplit(base)
-        if parts.scheme and parts.netloc:
-            return f"{parts.scheme}://{parts.netloc}{suffix}{quoted}"
-    return ""
+        if not (parts.scheme and parts.netloc):
+            return ""
+        url = f"{parts.scheme}://{parts.netloc}{suffix}{quoted}"
+    else:
+        return ""
+    if source == "skill" and token:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}token={quote(token, safe='')}"
+    return url
 
 
 @router.post("/integrations/gitlab-webhook")
@@ -929,10 +938,12 @@ def home(
     page_entries = lib_entries[lib_from:lib_to]
 
     url_map = project_url_map()
+    # Skill 详情页需 tForum token 鉴权，取当前用户的 token 拼到链接上
+    tforum_token = get_tforum_token(user["tforum_user_id"]) if user else ""
     for e in page_entries:
         norm = (e.get("repo_url") or "").strip().lower().removesuffix(".git").rstrip("/")
         e["project"] = url_map.get(norm)
-        e["detail_url"] = _library_detail_url(e["source"], e["name"])
+        e["detail_url"] = _library_detail_url(e["source"], e["name"], token=tforum_token)
 
     total = proj_total + len(lib_entries)
     total_pages = max(1, (total + per_page - 1) // per_page)
